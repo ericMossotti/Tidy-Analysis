@@ -1,11 +1,313 @@
 ---
 title: "Tidy Analysis"
+author: "Eric Mossotti"
+
+code-fold: true
+
+df_print: "tibble" 
+
+format: html
+toc: true
 ---
 
-## Quarto
+```{r include= FALSE}
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+
+```
+
+# Project Environment Set Up
+
+## Tidyverse Packages
+
+*tidyverse-package {tidyverse}:*
+
+> This package is designed to make it easy to install and load multiple 'tidyverse' packages in a single step.
 
 ```{r}
-1 + 1
+
+# tidyverse-package {tidyverse}
+library ( tidyverse )
+```
+
+## Data Import
+
+### Sourcing
+
+```{r}
+
+# list.files {base}
+csvFileList <- list.files ( path = "tripdata", 
+                            full.names = TRUE )
+```
+
+View list.
+
+```{r}
+
+# view {tibble} 
+print ( csvFileList )
+```
+
+### Data Mapping
+
+```{r}
+
+# map {purrr}, can be used with lists to generate a matrix of dataframes/tibbles
+oneTibble <- map ( csvFileList[1:2], read_csv ) |>
+    
+    list_rbind  ()
+```
+
+( In R a tibble is synonymous with a data frame )
+
+```{r}
+
+typeof (oneTibble)
+```
+
+```{r}
+typeof(oneTibble)
+```
+
+```{r}
+
+is_tibble ( oneTibble )
+```
+
+```{r}
+is.data.frame ( oneTibble )
+```
+
+```{r}
+oneTibble[1,]
+```
+
+```{r}
+length(oneTibble[[1]])
+```
+
+```{r}
+
+# drop_na {tidyr}	
+oneTibble <- drop_na ( oneTibble )
+```
+
+```{r}
+tibble ( Complete_Observations = 
+             length ( oneTibble [[1]] ) )
+```
+
+```{r}
+
+#should only need to check ride_id then datetime columns for duplicates
+# maybe only need to check ride_id column?
+
+# pick {dplyr}	
+distinct ( oneTibble, pick( "ride_id" ) ) |>
+    # count {dplyr}	
+    count(name = "Distinct Ride ID's")
+```
+
+```{r}
+
+length ( oneTibble [[1]] )
+```
+
+```{r}
+
+dupTibble <- oneTibble |>
+    
+    add_count ( started_at, 
+                ended_at, 
+                start_station_name, 
+                end_station_name ) |>
+    
+    filter ( n > 1 ) |>
+    
+    distinct ( ) |>
+    
+    ungroup ( ) |>
+    
+    arrange ( desc ( started_at ) )
+```
+
+```{r}
+
+print ( dupTibble[3:4] )
+```
+
+```{r}
+# verify how many rows have/are duplicates
+ 
+# nrow {base}
+nrow ( dupTibble )
+```
+
+```{r}
+
+# issue is, we need to get rid of not all of these rows, but just the extra duplicate observations. 
+
+# If there were 2 rows of duplicates, we would want to end up with 1 row after removing the extras.
+
+undupdTibble <- dupTibble |>
+    
+    # distinct {dplyr}
+    distinct ( started_at, 
+               start_station_name, 
+               ended_at, 
+               end_station_name, 
+               .keep_all = TRUE)
+```
+
+```{r}
+
+print ( undupdTibble[3:4] )
+```
+
+```{r}
+
+nrow ( undupdTibble )
+```
+
+```{r}
+
+distinct ( oneTibble, pick ( "ride_id" ) ) |>
+    
+    # count {dplyr}	
+    count ( name = "Uncorrected Distinct Observations" )
+```
+
+```{r}
+distinct ( oneTibble, pick( "started_at",
+                            "start_station_name",
+                            "ended_at", 
+                            "end_station_name" ) ) |>
+    # count {dplyr}	
+    count( name = "Corrected Distinct Observations" )
+```
+
+```{r}
+
+oneTibble <- oneTibble |>
+    
+    distinct ( started_at, 
+               start_station_name, 
+               ended_at, 
+               end_station_name, 
+               .keep_all = TRUE)
+```
+
+```{r}
+count ( oneTibble,
+        name =
+            "Total Observations: Un-duplicated Dataset" )
+```
+
+```{r}
+# sorting entire table by start_at column
+oneTibble[3] |>
+    # arrange {dplyr}	
+    arrange ( started_at ) |>
+    head()
+```
+
+```{r}
+
+oneTibble <- oneTibble |>
+
+    # arrange {dplyr}
+    arrange ( started_at )
+```
+
+```{r}
+print(head(oneTibble[3:4]))
+```
+
+```{r}
+
+# Split cells
+oneTibble[3] |>
+    
+    # separate_wider_delim {tidyr}
+    separate_wider_delim ( cols = c(started_at),
+                           delim = " ",
+                           names = c("start_date", 
+                                    "start_time"),
+                           cols_remove = TRUE) |>
+    head()
+```
+
+```{r}
+# Split cells
+oneTibble[3] |>
+    
+    # separate_wider_delim {tidyr}
+    separate_wider_delim ( cols = c(started_at),
+                           delim = " ",
+                           names = c("start_date", 
+                                    "start_time"),
+                           cols_remove = TRUE) |>
+    head()
+```
+
+```{r}
+
+oneTibble[4] |>
+    
+    separate_wider_delim ( cols = c(ended_at),
+                           delim = " ",
+                           names = c("end_date", 
+                                    "end_time"),
+                           cols_remove = TRUE ) |>
+    
+    head()
+```
+
+```{r}
+# Split cells
+oneTibble <- oneTibble |>
+    
+    # separate_wider_delim {tidyr}
+    separate_wider_delim ( cols = c(started_at),
+                           delim = " ",
+                           names = c("start_date", 
+                                    "start_time"),
+                           cols_remove = TRUE)
+```
+
+```{r}
+tibble_row ( "How many columns?" = ncol ( oneTibble ) )
+```
+
+```{r}
+
+oneTibble <- oneTibble |>
+    
+    separate_wider_delim ( cols = c(ended_at),
+                           delim = " ",
+                           names = c("end_date", 
+                                    "end_time"),
+                           cols_remove = TRUE )
+```
+
+```{r}
+tibble_row ( "How many columns?" = ncol ( oneTibble ) )
+```
+
+ 
+
+```{r}
+
+head(oneTibble)
+```
+
+```{r}
+
+oneTibble2 <- oneTibble |>
+    
+    group_by ( rideable_type ) |>
+    # nest {tidyr}
+    nest ()
+
 ```
