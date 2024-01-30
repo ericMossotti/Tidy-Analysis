@@ -36,6 +36,90 @@ library ( tidyverse )
 
 ```{r}
 
+library(dplyr)
+
+# "https://divvy-tripdata.s3.amazonaws.com/202004-divvy-tripdata.zip"
+# "202004
+
+# [:digit:]
+
+# memdb_frame(..., .name = unique_table_name())
+
+# tbl_memdb(df, name = deparse(substitute(df)))
+
+# src_memdb()
+
+con <- DBI::dbConnect(RSQLite::SQLite(), dbname = ":memory:")
+
+durls <- sprintf ( 
+    "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
+    202301:202312 )
+
+
+
+zipNames <- sprintf ( "%d-divvy-tripdata.zip",
+                      202301:202312 )
+#tempfile {base}
+tempZips <- tempfile ( zipNames )
+
+# multi_download {curl}	
+multi_download ( durls, destfiles = tempZips )
+
+fileNames <- sprintf ( "%d-divvy-tripdata.csv",
+                   202301:202312)
+
+```
+
+```{r}
+unz_read <- function ( fileNames, tempZips ) {
+    
+    datalist <- list()
+    
+    for ( i in 1:length(fileNames) ) {
+        
+            csvFile <- unz (tempZips[i], 
+                         fileNames[i] )
+            
+            datalist[[i]] <- data.frame(read.csv(csvFile))
+            #newdf <- read.csv ( newTempfile )
+        
+    }
+    
+    return ( datalist )
+}
+```
+
+```{r}
+unz_read <- function ( fileNames, tempZips ) {
+    
+    datalist <- list()
+    
+    for ( i in 1:length(fileNames) ) {
+        
+            csvFile <- unz ( tempZips[i], 
+                             fileNames[i] )
+            
+            datalist[[i]] <- data.frame(read.csv(csvFile))
+            #newdf <- read.csv ( newTempfile )
+        
+    }
+    
+    return ( datalist )
+}
+```
+
+```{r}
+
+oneTibble <- do.call ( rbind, 
+                       unz_read ( fileNames = fileNames, 
+                                  temp = temp )
+                       )
+
+memories <- memdb_frame ( data )
+```
+
+```{r}
+
 # list.files {base}
 csvFileList <- list.files ( path = "tripdata", 
                             full.names = TRUE )
@@ -53,7 +137,10 @@ print ( csvFileList )
 
 ```{r}
 
-# map {purrr}, can be used with lists to generate a matrix of dataframes/tibbles
+# map {purrr}, 
+
+# With list_rbind(), map can be used to directly create a dataframe from a list of files
+
 oneTibble <- map ( csvFileList[1:2], read_csv ) |>
     
     list_rbind  ()
@@ -64,10 +151,6 @@ oneTibble <- map ( csvFileList[1:2], read_csv ) |>
 ```{r}
 
 typeof (oneTibble)
-```
-
-```{r}
-typeof(oneTibble)
 ```
 
 ```{r}
@@ -100,13 +183,15 @@ tibble ( Complete_Observations =
 
 ```{r}
 
-#should only need to check ride_id then datetime columns for duplicates
-# maybe only need to check ride_id column?
+# Should only need to check ride_id then datetime columns for duplicates
+
+# Maybe only need to check ride_id column? Actually, no.
 
 # pick {dplyr}	
-distinct ( oneTibble, pick( "ride_id" ) ) |>
+distinct ( oneTibble, pick ( "ride_id" ) ) |>
+    
     # count {dplyr}	
-    count(name = "Distinct Ride ID's")
+    count ( name = "Distinct Ride ID's" )
 ```
 
 ```{r}
@@ -116,17 +201,23 @@ length ( oneTibble [[1]] )
 
 ```{r}
 
+# This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column (n) so didn't want to mess with the main dataframe for this.
+
 dupTibble <- oneTibble |>
     
+    # adds a count of rows for column 'n'
     add_count ( started_at, 
                 ended_at, 
                 start_station_name, 
                 end_station_name ) |>
     
+    # so that only observations that have been duplicated 1 or more times are         shown
     filter ( n > 1 ) |>
     
+    # will have to retest if I need this function
     distinct ( ) |>
     
+    # because we want to see all the rows, not just one row for each obs
     ungroup ( ) |>
     
     arrange ( desc ( started_at ) )
@@ -138,6 +229,7 @@ print ( dupTibble[3:4] )
 ```
 
 ```{r}
+
 # verify how many rows have/are duplicates
  
 # nrow {base}
@@ -157,7 +249,7 @@ undupdTibble <- dupTibble |>
                start_station_name, 
                ended_at, 
                end_station_name, 
-               .keep_all = TRUE)
+               .keep_all = TRUE )
 ```
 
 ```{r}
@@ -179,12 +271,12 @@ distinct ( oneTibble, pick ( "ride_id" ) ) |>
 ```
 
 ```{r}
-distinct ( oneTibble, pick( "started_at",
-                            "start_station_name",
-                            "ended_at", 
-                            "end_station_name" ) ) |>
+distinct ( oneTibble, pick ( "started_at",
+                             "start_station_name",
+                             "ended_at", 
+                             "end_station_name" ) ) |>
     # count {dplyr}	
-    count( name = "Corrected Distinct Observations" )
+    count ( name = "Corrected Distinct Observations" )
 ```
 
 ```{r}
@@ -195,7 +287,7 @@ oneTibble <- oneTibble |>
                start_station_name, 
                ended_at, 
                end_station_name, 
-               .keep_all = TRUE)
+               .keep_all = TRUE )
 ```
 
 ```{r}
@@ -205,11 +297,13 @@ count ( oneTibble,
 ```
 
 ```{r}
-# sorting entire table by start_at column
+# sorting the entire table by the start_at column
 oneTibble[3] |>
+    
     # arrange {dplyr}	
     arrange ( started_at ) |>
-    head()
+    
+    head ()
 ```
 
 ```{r}
@@ -247,8 +341,8 @@ oneTibble[3] |>
                            delim = " ",
                            names = c("start_date", 
                                     "start_time"),
-                           cols_remove = TRUE) |>
-    head()
+                           cols_remove = TRUE ) |>
+    head ()
 ```
 
 ```{r}
@@ -269,11 +363,11 @@ oneTibble[4] |>
 oneTibble <- oneTibble |>
     
     # separate_wider_delim {tidyr}
-    separate_wider_delim ( cols = c(started_at),
+    separate_wider_delim ( cols = c ( started_at ),
                            delim = " ",
-                           names = c("start_date", 
-                                    "start_time"),
-                           cols_remove = TRUE)
+                           names = c ( "start_date",
+                                       "start_time" ),
+                           cols_remove = TRUE )
 ```
 
 ```{r}
@@ -299,7 +393,7 @@ tibble_row ( "How many columns?" = ncol ( oneTibble ) )
 
 ```{r}
 
-head(oneTibble)
+head ( oneTibble )
 ```
 
 ```{r}
@@ -307,7 +401,52 @@ head(oneTibble)
 oneTibble2 <- oneTibble |>
     
     group_by ( rideable_type ) |>
+    
     # nest {tidyr}
     nest ()
+```
 
+```{r}
+# download.file {utils}	
+
+# https://divvy-tripdata.s3.amazonaws.com/index.html
+
+download.file(url, 
+              destfile, 
+              method, 
+              quiet = FALSE, 
+              mode = "w",
+              cacheOK = TRUE,
+              extra = getOption("download.file.extra"),
+              headers = NULL, ...)
+
+# connections {base}
+
+unz(description, 
+    filename, 
+    open = "", 
+    encoding = getOption ( "encoding" ) )
+
+
+#tempfile {base}
+
+tempfile(pattern = "file", tmpdir = tempdir(), fileext = "")
+
+tempdir(check = FALSE)
+
+# unlink {base}	
+## unlink deletes the file(s) or directories specified by x.
+
+unlink(x, recursive = FALSE, force = FALSE, expand = TRUE)
+
+
+html <- read_html("http://rvest.tidyverse.org/")
+class(html)
+#> [1] "xml_document" "xml_node"
+
+
+```
+
+```{r}
+    session_jump_to ( "202301-divvy-tripdata.zip" )
 ```
