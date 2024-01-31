@@ -18,7 +18,7 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 
 # Project Environment Set Up
 
-## Tidyverse Packages
+## 
 
 *tidyverse-package {tidyverse}:*
 
@@ -26,7 +26,6 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 
 ```{r}
 
-# tidyverse-package {tidyverse}
 library ( tidyverse )
 ```
 
@@ -41,21 +40,12 @@ library(dplyr)
 # "https://divvy-tripdata.s3.amazonaws.com/202004-divvy-tripdata.zip"
 # "202004
 
-# [:digit:]
-
-# memdb_frame(..., .name = unique_table_name())
-
-# tbl_memdb(df, name = deparse(substitute(df)))
-
-# src_memdb()
 
 con <- DBI::dbConnect(RSQLite::SQLite(), dbname = ":memory:")
 
 durls <- sprintf ( 
     "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
     202301:202312 )
-
-
 
 zipNames <- sprintf ( "%d-divvy-tripdata.zip",
                       202301:202312 )
@@ -90,32 +80,47 @@ unz_read <- function ( fileNames, tempZips ) {
 ```
 
 ```{r}
-unz_read <- function ( fileNames, tempZips ) {
-    
-    datalist <- list()
-    
-    for ( i in 1:length(fileNames) ) {
-        
-            csvFile <- unz ( tempZips[i], 
-                             fileNames[i] )
-            
-            datalist[[i]] <- data.frame(read.csv(csvFile))
-            #newdf <- read.csv ( newTempfile )
-        
-    }
-    
-    return ( datalist )
-}
-```
-
-```{r}
 
 oneTibble <- do.call ( rbind, 
                        unz_read ( fileNames = fileNames, 
                                   temp = temp )
                        )
 
-memories <- memdb_frame ( data )
+```
+
+## More Efficient Data Import with Arrow
+
+```{r}
+durls <- sprintf ( 
+    "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
+    202301:202312 )
+
+dir.create("tripZips")
+
+local_zipNames <- sprintf ( "tripZips/%d-divvy-tripdata.zip",
+                      202301:202312 )
+
+multi_download ( durls, destfiles = zipNames_local )
+
+dir.create("tripdata")
+
+local_fileNames <- sprintf ( "tripdata/%d-divvy-tripdata.csv",
+                             202301:202312)
+
+for ( i in 1:12 ) {
+    
+        unzip ( local_zipNames[i], local_fileNames[i] )
+}
+
+
+
+library(arrow)
+
+# open_dataset {arrow}	
+trip_dataset <- open_dataset("tripdata", format = "csv")
+
+
+glimpse(trip_dataset)
 ```
 
 ```{r}
@@ -404,49 +409,4 @@ oneTibble2 <- oneTibble |>
     
     # nest {tidyr}
     nest ()
-```
-
-```{r}
-# download.file {utils}	
-
-# https://divvy-tripdata.s3.amazonaws.com/index.html
-
-download.file(url, 
-              destfile, 
-              method, 
-              quiet = FALSE, 
-              mode = "w",
-              cacheOK = TRUE,
-              extra = getOption("download.file.extra"),
-              headers = NULL, ...)
-
-# connections {base}
-
-unz(description, 
-    filename, 
-    open = "", 
-    encoding = getOption ( "encoding" ) )
-
-
-#tempfile {base}
-
-tempfile(pattern = "file", tmpdir = tempdir(), fileext = "")
-
-tempdir(check = FALSE)
-
-# unlink {base}	
-## unlink deletes the file(s) or directories specified by x.
-
-unlink(x, recursive = FALSE, force = FALSE, expand = TRUE)
-
-
-html <- read_html("http://rvest.tidyverse.org/")
-class(html)
-#> [1] "xml_document" "xml_node"
-
-
-```
-
-```{r}
-    session_jump_to ( "202301-divvy-tripdata.zip" )
 ```
