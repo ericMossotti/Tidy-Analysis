@@ -41,7 +41,7 @@ library(dplyr)
 # "202004
 
 
-con <- DBI::dbConnect(RSQLite::SQLite(), dbname = ":memory:")
+#con <- DBI::dbConnect(RSQLite::SQLite(), dbname = ":memory:")
 
 durls <- sprintf ( 
     "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
@@ -57,7 +57,6 @@ multi_download ( durls, destfiles = tempZips )
 
 fileNames <- sprintf ( "%d-divvy-tripdata.csv",
                    202301:202312)
-
 ```
 
 ```{r}
@@ -90,6 +89,8 @@ oneTibble <- do.call ( rbind,
 
 ## More Efficient Data Import with Arrow
 
+[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
+
 ```{r}
 durls <- sprintf ( 
     "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
@@ -97,20 +98,19 @@ durls <- sprintf (
 
 dir.create("tripZips")
 
-local_zipNames <- sprintf ( "tripZips/%d-divvy-tripdata.zip",
+zipPaths <- sprintf ( "tripZips/%d-divvy-tripdata.zip",
                       202301:202312 )
 
-multi_download ( durls, destfiles = zipNames_local )
+multi_download ( durls, destfiles = zipPaths )
 
 dir.create("tripdata")
 
-local_fileNames <- sprintf ( "tripdata/%d-divvy-tripdata.csv",
+filePaths <- sprintf ( "tripdata/%d-divvy-tripdata.csv",
                              202301:202312)
 
 for ( i in 1:12 ) {
     
-        unzip ( local_zipNames[i], local_fileNames[i] )
-}
+ }
 
 
 
@@ -121,6 +121,112 @@ trip_dataset <- open_dataset("tripdata", format = "csv")
 
 
 glimpse(trip_dataset)
+
+
+trip_dataset |>
+    
+    summarise (.by = rideable_type, n = n() ) |>
+    
+    collect()|>
+
+    system.time()
+
+```
+
+```{r}
+
+trip_dataset <- open_dataset(
+    
+    sources = "tripdata",
+    
+    format = "csv"
+)
+
+dir.create("tripdata/ride_types")
+pq_path <- "tripdata/ride_types"
+
+trip_dataset |>
+    
+    group_by(rideable_type)|>
+    
+    write_dataset(path = pq_path, 
+                  format = "parquet")
+
+
+tibble(
+  files = list.files(pq_path, recursive = TRUE),
+  size_MB = file.size(file.path(pq_path, files)) / 1024^2
+)
+
+
+rideType_pq <- open_dataset(pq_path)
+
+rideType_pq |>
+    collect()|>
+    distinct ( pick(ride_id))|>
+    count(name = "Distinct obs")|>
+    system.time()
+```
+
+I am not sure if I should keep this all in one file or try to split files based on potential grouping before, after, or during cleaning.
+
+Let's try to partition it out, then see how the performance differs.
+
+```{r}
+
+rideType_tidy <- rideType_pq |>
+    collect()|>
+    select(started_at)|>
+    filter(!is.na(started_at))
+```
+
+```{r}
+
+dataset_rideTypes |>
+    
+    group_by(rideable_type) |>
+    write_dataset(path = "tripdata/ride_types", 
+                  format = "parquet")
+```
+
+```{r}
+
+tibble (files = list.files ( parquetPath,recursive = TRUE),
+        size_MB = file.size ( file.path ( parquetPath, files ) ) / 1024^2 )
+```
+
+```{r}
+
+tibble ( files = list.files ( "tripdata", recursive = FALSE),
+         size_MB = file.size ( 
+             file.path ( "tripdata", files ) ) / 1024^2
+         )
+```
+
+```{r}
+sum(file.size(file.path("tripdata", list.files("tripdata")))/1024^2)
+```
+
+There is a significant size difference between the parquet file and the csv files.
+
+Trying the duckdb approach
+
+```{r}
+library(duckdb)
+
+dbcon <- dbConnect(duckdb::duckdb())
+
+rideType_pq |>
+    
+    to_duckdb()
+
+```
+
+```{r}
+
+query <- dataset_rideTypes |>
+    
+    filter(Ride)
 ```
 
 ```{r}
@@ -216,7 +322,7 @@ dupTibble <- oneTibble |>
                 start_station_name, 
                 end_station_name ) |>
     
-    # so that only observations that have been duplicated 1 or more times are         shown
+    # so that only observations that have been duplicated 1 or more         times are shown
     filter ( n > 1 ) |>
     
     # will have to retest if I need this function
@@ -276,6 +382,7 @@ distinct ( oneTibble, pick ( "ride_id" ) ) |>
 ```
 
 ```{r}
+
 distinct ( oneTibble, pick ( "started_at",
                              "start_station_name",
                              "ended_at", 
