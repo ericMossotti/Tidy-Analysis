@@ -71,24 +71,27 @@
       ],
       "Hash": "45f0398006e83a5b10b72a90663d8d8c"
     },
-    "RSQLite": {
-      "Package": "RSQLite",
-      "Version": "2.3.5",
+    "arrow": {
+      "Package": "arrow",
+      "Version": "14.0.0.2",
       "Source": "Repository",
       "Repository": "RSPM",
       "Requirements": [
-        "DBI",
         "R",
+        "R6",
+        "assertthat",
         "bit64",
-        "blob",
         "cpp11",
-        "memoise",
+        "glue",
         "methods",
-        "pkgconfig",
-        "plogr",
-        "rlang"
+        "purrr",
+        "rlang",
+        "stats",
+        "tidyselect",
+        "utils",
+        "vctrs"
       ],
-      "Hash": "f5a75d57e0a3014a6ef537ac04a80fc6"
+      "Hash": "042f2ee2286a91abe5a3d66c9be92380"
     },
     "askpass": {
       "Package": "askpass",
@@ -99,6 +102,16 @@
         "sys"
       ],
       "Hash": "cad6cf7f1d5f6e906700b9d3e718c796"
+    },
+    "assertthat": {
+      "Package": "assertthat",
+      "Version": "0.2.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "tools"
+      ],
+      "Hash": "50c838a310445e954bc13f26f26a6ecf"
     },
     "backports": {
       "Package": "backports",
@@ -945,13 +958,6 @@
         "utils"
       ],
       "Hash": "01f28d4278f15c76cddbea05899c5d6f"
-    },
-    "plogr": {
-      "Package": "plogr",
-      "Version": "0.2.0",
-      "Source": "Repository",
-      "Repository": "RSPM",
-      "Hash": "09eb987710984fc2905c7129c7d85e65"
     },
     "prettyunits": {
       "Package": "prettyunits",
