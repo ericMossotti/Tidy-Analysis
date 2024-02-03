@@ -37,12 +37,6 @@ library ( tidyverse )
 
 library(dplyr)
 
-# "https://divvy-tripdata.s3.amazonaws.com/202004-divvy-tripdata.zip"
-# "202004
-
-
-#con <- DBI::dbConnect(RSQLite::SQLite(), dbname = ":memory:")
-
 durls <- sprintf ( 
     "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
     202301:202312 )
@@ -60,30 +54,7 @@ fileNames <- sprintf ( "%d-divvy-tripdata.csv",
 ```
 
 ```{r}
-unz_read <- function ( fileNames, tempZips ) {
-    
-    datalist <- list()
-    
-    for ( i in 1:length(fileNames) ) {
-        
-            csvFile <- unz (tempZips[i], 
-                         fileNames[i] )
-            
-            datalist[[i]] <- data.frame(read.csv(csvFile))
-            #newdf <- read.csv ( newTempfile )
-        
-    }
-    
-    return ( datalist )
-}
-```
 
-```{r}
-
-oneTibble <- do.call ( rbind, 
-                       unz_read ( fileNames = fileNames, 
-                                  temp = temp )
-                       )
 
 ```
 
@@ -92,80 +63,8 @@ oneTibble <- do.call ( rbind,
 [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
 ```{r}
-durls <- sprintf ( 
-    "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
-    202301:202312 )
-
-dir.create("tripZips")
-
-zipPaths <- sprintf ( "tripZips/%d-divvy-tripdata.zip",
-                      202301:202312 )
-
-multi_download ( durls, destfiles = zipPaths )
-
-dir.create("tripdata")
-
-filePaths <- sprintf ( "tripdata/%d-divvy-tripdata.csv",
-                             202301:202312)
-
-for ( i in 1:12 ) {
-    
- }
 
 
-
-library(arrow)
-
-# open_dataset {arrow}	
-trip_dataset <- open_dataset("tripdata", format = "csv")
-
-
-glimpse(trip_dataset)
-
-
-trip_dataset |>
-    
-    summarise (.by = rideable_type, n = n() ) |>
-    
-    collect()|>
-
-    system.time()
-
-```
-
-```{r}
-
-trip_dataset <- open_dataset(
-    
-    sources = "tripdata",
-    
-    format = "csv"
-)
-
-dir.create("tripdata/ride_types")
-pq_path <- "tripdata/ride_types"
-
-trip_dataset |>
-    
-    group_by(rideable_type)|>
-    
-    write_dataset(path = pq_path, 
-                  format = "parquet")
-
-
-tibble(
-  files = list.files(pq_path, recursive = TRUE),
-  size_MB = file.size(file.path(pq_path, files)) / 1024^2
-)
-
-
-rideType_pq <- open_dataset(pq_path)
-
-rideType_pq |>
-    collect()|>
-    distinct ( pick(ride_id))|>
-    count(name = "Distinct obs")|>
-    system.time()
 ```
 
 I am not sure if I should keep this all in one file or try to split files based on potential grouping before, after, or during cleaning.
@@ -174,32 +73,30 @@ Let's try to partition it out, then see how the performance differs.
 
 ```{r}
 
-rideType_tidy <- rideType_pq |>
-    collect()|>
-    select(started_at)|>
-    filter(!is.na(started_at))
+tibble ( files = list.files ( parquetPath,
+                              
+                              recursive = TRUE),
+         
+         size_MB = file.size (
+             
+             file.path (
+                 
+                 parquetPath,
+                 
+                 files ) ) / 1024^2 )
 ```
 
 ```{r}
 
-dataset_rideTypes |>
-    
-    group_by(rideable_type) |>
-    write_dataset(path = "tripdata/ride_types", 
-                  format = "parquet")
-```
-
-```{r}
-
-tibble (files = list.files ( parquetPath,recursive = TRUE),
-        size_MB = file.size ( file.path ( parquetPath, files ) ) / 1024^2 )
-```
-
-```{r}
-
-tibble ( files = list.files ( "tripdata", recursive = FALSE),
+tibble ( files = list.files ( "tripdata", 
+                              
+                              recursive = FALSE),
+         
          size_MB = file.size ( 
-             file.path ( "tripdata", files ) ) / 1024^2
+             
+             file.path ( "tripdata", files ) 
+             
+             ) / 1024^2
          )
 ```
 
@@ -212,21 +109,55 @@ There is a significant size difference between the parquet file and the csv file
 Trying the duckdb approach
 
 ```{r}
-library(duckdb)
 
-dbcon <- dbConnect(duckdb::duckdb())
+library(duckdb)
+library(arrow)
+library(curl)
+
+durls <- sprintf ( 
+    "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
+    202301:202312 )
+
+zipPaths <- sprintf ( "tripZips/%d-divvy-tripdata.zip",
+                      202301:202312 )
+
+filePaths <- sprintf ( "tripdata/%d-divvy-tripdata.csv",
+                       202301:202312 )
+
+pq_path <- "tripdata/ride_types"
+
+dir.create ( "tripZips" )
+
+dir.create ( "tripdata" )
+
+dir.create ( "tripdata/ride_types" )
+
+# multi_download {curl}	
+multi_download ( durls, 
+                 destfiles = zipPaths )
+
+# open_dataset {arrow}	
+trip_dataset <- open_dataset ( "tripdata", 
+                               format = "csv" )
+
+trip_dataset |>
+    
+    # group_by {dplyr}	
+    group_by ( rideable_type ) |>
+    
+    # write_dataset {arrow}	
+    write_dataset ( path = pq_path, 
+                    format = "parquet" )
+
+rideType_pq <- open_dataset ( pq_path )
+
+# dbConnect {DBI}
+dbcon <- dbConnect ( duckdb::duckdb () )
 
 rideType_pq |>
     
-    to_duckdb()
-
-```
-
-```{r}
-
-query <- dataset_rideTypes |>
-    
-    filter(Ride)
+    # to_duckdb {arrow}	
+    to_duckdb ()
 ```
 
 ```{r}
