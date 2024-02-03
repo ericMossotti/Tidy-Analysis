@@ -62,28 +62,13 @@ fileNames <- sprintf ( "%d-divvy-tripdata.csv",
 
 [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
-```{r}
-
-
-```
-
 I am not sure if I should keep this all in one file or try to split files based on potential grouping before, after, or during cleaning.
 
 Let's try to partition it out, then see how the performance differs.
 
 ```{r}
 
-tibble ( files = list.files ( parquetPath,
-                              
-                              recursive = TRUE),
-         
-         size_MB = file.size (
-             
-             file.path (
-                 
-                 parquetPath,
-                 
-                 files ) ) / 1024^2 )
+
 ```
 
 ```{r}
@@ -101,12 +86,24 @@ tibble ( files = list.files ( "tripdata",
 ```
 
 ```{r}
-sum(file.size(file.path("tripdata", list.files("tripdata")))/1024^2)
+
 ```
 
 There is a significant size difference between the parquet file and the csv files.
 
-Trying the duckdb approach
+arrow?
+
+dtplyr?
+
+~~dbplyr?~~
+
+no because we aren't working with relational databases
+
+duckplyr?
+
+duckdb?
+
+sparklyr
 
 ```{r}
 
@@ -124,13 +121,15 @@ zipPaths <- sprintf ( "tripZips/%d-divvy-tripdata.zip",
 filePaths <- sprintf ( "tripdata/%d-divvy-tripdata.csv",
                        202301:202312 )
 
-pq_path <- "tripdata/ride_types"
 
 dir.create ( "tripZips" )
 
 dir.create ( "tripdata" )
 
-dir.create ( "tripdata/ride_types" )
+dir.create ( "pq_tripdata" )
+
+pq_path <- "pq_tripdata"
+
 
 # multi_download {curl}	
 multi_download ( durls, 
@@ -143,21 +142,28 @@ trip_dataset <- open_dataset ( "tripdata",
 trip_dataset |>
     
     # group_by {dplyr}	
-    group_by ( rideable_type ) |>
+    #group_by ( rideable_type ) |>
     
     # write_dataset {arrow}	
     write_dataset ( path = pq_path, 
                     format = "parquet" )
 
-rideType_pq <- open_dataset ( pq_path )
+trip_dataset_pq <- open_dataset ( pq_path )
 
 # dbConnect {DBI}
 dbcon <- dbConnect ( duckdb::duckdb () )
 
-rideType_pq |>
+# methods_overwrite {duckplyr}	
+methods_overwrite()
+methods_restore()
+
+trip_dataset_pq |>
     
-    # to_duckdb {arrow}	
-    to_duckdb ()
+    to_duckdb () |>
+    
+    distinct ( pick ( ride_id ) ) |>
+    
+    count ( name = "Distinct Ride ID's" )
 ```
 
 ```{r}
