@@ -100,7 +100,7 @@ matrix ( csvFileList,
 # map {purrr}, 
 
 # With list_rbind(), map can be used to directly create a dataframe from a list of files
-oneTibble <- map ( csvFileList[1:2], read_csv ) |>
+oneTibble <- map ( csvFileList[1:12], read_csv ) |>
     
     list_rbind  ()
 ```
@@ -121,7 +121,9 @@ oneTibble[1,]
 ```
 
 ```{r}
-length ( oneTibble[[1]] )
+originalLength <- length ( oneTibble[[1]] )
+
+print(originalLength)
 ```
 
 ```{r}
@@ -132,7 +134,8 @@ oneTibble <- drop_na ( oneTibble )
 
 ```{r}
 tibble ( Complete_Observations = 
-             length ( oneTibble [[1]] ) )
+             length ( oneTibble [[1]] ),
+         "Rows Deleted" = Complete_Observations - originalLength )
 ```
 
 ```{r}
@@ -146,11 +149,6 @@ distinct ( oneTibble, pick ( "ride_id" ) ) |>
     
     # count {dplyr}	
     count ( name = "Distinct Ride ID's" )
-```
-
-```{r}
-
-length ( oneTibble [[1]] )
 ```
 
 ```{r}
@@ -174,7 +172,7 @@ dupTibble <- oneTibble |>
     # because we want to see all the rows, not just one row for each obs
     ungroup ( ) |>
     
-    arrange ( desc ( started_at ) )
+    arrange ( started_at )
 ```
 
 ```{r}
