@@ -88,10 +88,12 @@ csvFileList <- list.files ( path = "tripdata",
                             full.names = TRUE )
 
 # view {tibble} 
-print ( csvFileList )
+matrix ( csvFileList, 
+         dimnames = list ( seq ( csvFileList ), 
+                           c ( "csvfiles" ) 
+                           ) 
+         )
 ```
-
-\
 
 ```{r}
 
