@@ -126,6 +126,8 @@ originalLength <- length ( oneTibble[[1]] )
 print(originalLength)
 ```
 
+We started with 5,719,877 observations for the time period of Jan-Dec 2023, then drop_na() removed 1,388,170 of those observations.
+
 ```{r}
 
 # drop_na {tidyr}	
@@ -133,9 +135,8 @@ oneTibble <- drop_na ( oneTibble )
 ```
 
 ```{r}
-tibble ( Complete_Observations = 
-             length ( oneTibble [[1]] ),
-         "Rows Deleted" = Complete_Observations - originalLength )
+tibble ( Complete_Observations = length ( oneTibble [[1]] ),
+         "Rows Deleted by drop_na()" = originalLength - Complete_Observations )
 ```
 
 ```{r}
@@ -157,17 +158,12 @@ distinct ( oneTibble, pick ( "ride_id" ) ) |>
 
 dupTibble <- oneTibble |>
     
+    select ( started_at:end_station_name ) |>
     # adds a count of rows for column 'n'
-    add_count ( started_at, 
-                ended_at, 
-                start_station_name, 
-                end_station_name ) |>
+    add_count ( started_at:end_station_name ) |>
     
     # so that only observations that have been duplicated 1 or more         times are shown
     filter ( n > 1 ) |>
-    
-    # will have to retest if I need this function
-    distinct ( ) |>
     
     # because we want to see all the rows, not just one row for each obs
     ungroup ( ) |>
@@ -177,7 +173,10 @@ dupTibble <- oneTibble |>
 
 ```{r}
 
-print ( dupTibble[3:4] )
+print ( dupTibble )
+
+
+length(dupTibble)
 ```
 
 ```{r}
