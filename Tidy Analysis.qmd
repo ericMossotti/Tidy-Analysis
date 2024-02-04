@@ -16,70 +16,22 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 
 ```
 
-# Project Environment Set Up
-
-## 
-
-*tidyverse-package {tidyverse}:*
-
-> This package is designed to make it easy to install and load multiple 'tidyverse' packages in a single step.
-
 ```{r}
+libs <- c("duckdb", 
+          "arrow", 
+          "curl", 
+          "tidyverse")
 
-library ( tidyverse )
+lapply ( libs, 
+         library, 
+         character.only = TRUE ) |>
+    
+    invisible ()
 ```
 
-## Data Import
-
-### Sourcing
+# Data Importing
 
 ```{r}
-
-library(dplyr)
-
-durls <- sprintf ( 
-    "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
-    202301:202312 )
-
-#zipNames <- sprintf ( "%d-divvy-tripdata.zip",
-                    #  202301:202312 )
-#tempfile {base}
-#tempZips <- tempfile ( zipNames )
-
-# multi_download {curl}	
-multi_download ( durls, destfiles = tempZips )
-
-fileNames <- sprintf ( "%d-divvy-tripdata.csv",
-                   202301:202312)
-```
-
-## More Efficient Data Import with Arrow
-
-[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
-
-I am not sure if I should keep this all in one file or try to split files based on potential grouping before, after, or during cleaning.
-
-Let's try to partition it out, then see how the performance differs.
-
-**arrow**?
-
-~~dtplyr~~?
-
-~~dbplyr?~~
-
-no because we aren't working with relational databases
-
-**duckplyr**?
-
-**duckdb**?
-
-~~sparklyr~~
-
-```{r}
-
-library(duckdb)
-library(arrow)
-library(curl)
 
 durls <- sprintf ( 
     "https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
@@ -93,8 +45,9 @@ filePaths <- sprintf ( "tripdata/%d-divvy-tripdata.csv",
 
 zipNames <- sprintf ( "%d-divvy-tripdata.zip",
                       202301:202312 )
+
 fileNames <- sprintf ( "%d-divvy-tripdata.csv",
-                   202301:202312)
+                       202301:202312)
 
 
 pq_path <- "pq_tripdata"
@@ -126,48 +79,6 @@ unz_csv <- function ( x = filePaths,
                       x[i] )
     }
 }
-
-
-
-# open_dataset {arrow}	
-trip_dataset <- open_dataset ( "tripdata", 
-                               format = "csv" )
-
-trip_dataset |>
-    
-    # write_dataset {arrow}	
-    write_dataset ( path = pq_path, 
-                    format = "parquet" )
-
-trip_dataset_pq <- open_dataset ( pq_path )
-
-# methods_overwrite {duckplyr}	
-#methods_overwrite()
-
-#methods_restore()
-
-trip_dataset_pq |>
-    
-    to_duckdb () |>
-    
-    distinct ( pick ( ride_id ) ) |>
-    
-    count ( name = "Distinct Ride ID's" )
-
-# dbConnect {DBI}
-duckCon <- dbConnect ( duckdb ( ) )
-
-duckdb_register_arrow ( duckCon, 
-                        "tripdb_wArrow", 
-                        trip_dataset_pq )
-
-tbl ( duckCon, 
-      
-     "tripdb_wArrow" ) |>
-    
-    distinct ( pick ( ride_id ) ) |>
-    
-    count ( name = "Distinct" )
 ```
 
 ```{r}
@@ -175,17 +86,12 @@ tbl ( duckCon,
 # list.files {base}
 csvFileList <- list.files ( path = "tripdata", 
                             full.names = TRUE )
-```
-
-View list.
-
-```{r}
 
 # view {tibble} 
 print ( csvFileList )
 ```
 
-### Data Mapping
+\
 
 ```{r}
 
@@ -201,15 +107,10 @@ oneTibble <- map ( csvFileList[1:2], read_csv ) |>
 
 ```{r}
 
-typeof (oneTibble)
-```
-
-```{r}
+typeof ( oneTibble )
 
 is_tibble ( oneTibble )
-```
 
-```{r}
 is.data.frame ( oneTibble )
 ```
 
@@ -218,7 +119,7 @@ oneTibble[1,]
 ```
 
 ```{r}
-length(oneTibble[[1]])
+length ( oneTibble[[1]] )
 ```
 
 ```{r}
@@ -234,7 +135,7 @@ tibble ( Complete_Observations =
 
 ```{r}
 
-# Should only need to check ride_id then datetime columns for duplicates
+
 
 # Maybe only need to check ride_id column? Actually, no.
 
@@ -454,4 +355,50 @@ oneTibble2 <- oneTibble |>
     
     # nest {tidyr}
     nest ()
+```
+
+## Arrow and DuckDB
+
+[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
+
+```{r}
+# open_dataset {arrow}	
+trip_dataset <- open_dataset ( "tripdata", 
+                               format = "csv" )
+
+trip_dataset |>
+    
+    # write_dataset {arrow}	
+    write_dataset ( path = pq_path, 
+                    format = "parquet" )
+
+trip_dataset_pq <- open_dataset ( pq_path )
+
+# methods_overwrite {duckplyr}	
+#methods_overwrite()
+
+#methods_restore()
+
+trip_dataset_pq |>
+    
+    to_duckdb () |>
+    
+    distinct ( pick ( ride_id ) ) |>
+    
+    count ( name = "Distinct Ride ID's" )
+
+# dbConnect {DBI}
+duckCon <- dbConnect ( duckdb ( ) )
+
+duckdb_register_arrow ( duckCon, 
+                        "tripdb_wArrow", 
+                        trip_dataset_pq )
+
+tbl ( duckCon, 
+      
+    "tripdb_wArrow" ) |>
+    
+    distinct ( pick ( ride_id ) ) |>
+    
+    count ( name = "Distinct" )
 ```
