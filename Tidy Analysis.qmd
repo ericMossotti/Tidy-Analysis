@@ -152,6 +152,12 @@ distinct ( oneTibble, pick ( "ride_id" ) ) |>
     count ( name = "Distinct Ride ID's" )
 ```
 
+Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
+
+Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once. One big limitation of this analysis is that it's based on a fictional but realistic dataset.
+
+For the sake of this exercise it's assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. The other option would be to assume one person could check out and in multiple cycles. It's only happened 18 times over the course of a full year. In the real world, we would want to be absolutely sure, but for this exercise, it is reasonable to assume these are errors.
+
 ```{r}
 
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column (n) so didn't want to mess with the main dataframe for this.
@@ -160,7 +166,10 @@ dupTibble <- oneTibble |>
     
     select ( started_at:end_station_name ) |>
     # adds a count of rows for column 'n'
-    add_count ( started_at:end_station_name ) |>
+    add_count ( started_at, 
+                ended_at, 
+                start_station_name, 
+                end_station_name ) |>
     
     # so that only observations that have been duplicated 1 or more         times are shown
     filter ( n > 1 ) |>
@@ -176,8 +185,14 @@ dupTibble <- oneTibble |>
 print ( dupTibble )
 
 
-length(dupTibble)
+paste0("Number of observations with duplicates: ", 
+       length(dupTibble[[1]]))
+
+
+distinct ( dupTibble["n"] )
 ```
+
+By applying distinct() on dupTibble, we see the only distinct value is 2. We can safely conclude that of the duplicates each duplicated observation has only 1 extra copy.
 
 ```{r}
 
@@ -186,6 +201,8 @@ length(dupTibble)
 # nrow {base}
 nrow ( dupTibble )
 ```
+
+Number of rows in the dupTibble is 36. Because each duplicated observation has one duplicate (n = 2), expected removed nobs is 18.
 
 ```{r}
 
@@ -205,7 +222,7 @@ undupdTibble <- dupTibble |>
 
 ```{r}
 
-print ( undupdTibble[3:4] )
+print ( undupdTibble )
 ```
 
 ```{r}
@@ -213,23 +230,37 @@ print ( undupdTibble[3:4] )
 nrow ( undupdTibble )
 ```
 
+Our predicted value for observations in the undupdTibble was indeed 18.
+
 ```{r}
 
-distinct ( oneTibble, pick ( "ride_id" ) ) |>
+uncorrectDistinct <- distinct ( oneTibble, pick ( "ride_id" ) ) |>
     
     # count {dplyr}	
     count ( name = "Uncorrected Distinct Observations" )
+
+uncorrectDistinct
 ```
 
 ```{r}
 
-distinct ( oneTibble, pick ( "started_at",
+correctDistinct <- distinct ( oneTibble, pick ( "started_at",
                              "start_station_name",
                              "ended_at", 
                              "end_station_name" ) ) |>
     # count {dplyr}	
     count ( name = "Corrected Distinct Observations" )
+
+correctDistinct
+
+correctionTibble <- tibble(Uncorrected = uncorrectDistinct[[1]],
+                           Expected_Corrected = correctDistinct[[1]],
+                           Removed_Obs = Uncorrected - Corrected )
+
+correctionTibble
 ```
+
+Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The corrected nobs after removing one copy of the duplicates since all of them had only one duplicate, resulted in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 observations were removed.
 
 ```{r}
 
@@ -243,9 +274,7 @@ oneTibble <- oneTibble |>
 ```
 
 ```{r}
-count ( oneTibble,
-        name =
-            "Total Observations: Un-duplicated Dataset" )
+nrow( oneTibble )
 ```
 
 ```{r}
@@ -265,7 +294,7 @@ oneTibble <- oneTibble |>
 ```
 
 ```{r}
-print(head(oneTibble[3:4]))
+print(head(oneTibble[3]))
 ```
 
 ```{r}
@@ -283,19 +312,6 @@ oneTibble[3] |>
 ```
 
 ```{r}
-# Split cells
-oneTibble[3] |>
-    
-    # separate_wider_delim {tidyr}
-    separate_wider_delim ( cols = c(started_at),
-                           delim = " ",
-                           names = c("start_date", 
-                                    "start_time"),
-                           cols_remove = TRUE ) |>
-    head ()
-```
-
-```{r}
 
 oneTibble[4] |>
     
@@ -308,6 +324,56 @@ oneTibble[4] |>
     head()
 ```
 
+Changing the data type of the date columns.
+
+```{r}
+
+#test
+oneTibble |> 
+    
+    mutate(start_date = as.Date(
+    start_date, format = "%Y-%m-%d"),
+    end_date = as.Date(
+    end_date, format = "%Y-%m-%d")) 
+
+# changes date columns to the date dataype columns
+oneTibble <- oneTibble |> 
+    
+    mutate (start_date = as.Date(
+    start_date, format = "%Y-%m-%d"),
+    
+    end_date = as.Date(
+    end_date, format = "%Y-%m-%d"))
+
+#test
+oneTibble |>
+    
+    mutate ( start_time = as_hms( start_time ),
+        end_time = as_hms( end_time ))
+    
+oneTibble <- oneTibble |>
+    
+    mutate ( start_time = as_hms( start_time ),
+        end_time = as_hms( end_time ))
+```
+
+```{r}
+oneTibble[3] |> head()
+
+oneTibble[3] |>
+    
+    separate_wider_delim ( cols = c(start_date),
+                           delim = "-",
+                           names = c("Start Year", 
+                                    "Start Month",
+                                    "Start Day"),
+                           cols_remove = FALSE ) |>
+    
+    head()
+
+
+```
+
 ```{r}
 # Split cells
 oneTibble <- oneTibble |>
@@ -317,12 +383,15 @@ oneTibble <- oneTibble |>
                            delim = " ",
                            names = c ( "start_date",
                                        "start_time" ),
-                           cols_remove = TRUE )
+                           cols_remove = TRUE )0
+    
 ```
 
 ```{r}
 tibble_row ( "How many columns?" = ncol ( oneTibble ) )
 ```
+
+Now there are 14 columns total.
 
 ```{r}
 
@@ -339,21 +408,11 @@ oneTibble <- oneTibble |>
 tibble_row ( "How many columns?" = ncol ( oneTibble ) )
 ```
 
- 
+ Now there are 15 total columns.
 
 ```{r}
 
 head ( oneTibble )
-```
-
-```{r}
-
-oneTibble2 <- oneTibble |>
-    
-    group_by ( rideable_type ) |>
-    
-    # nest {tidyr}
-    nest ()
 ```
 
 ## Arrow and DuckDB
