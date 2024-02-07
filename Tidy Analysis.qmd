@@ -15,44 +15,30 @@ toc: true
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-```{r}
-
-libs <- c("duckdb",
-          "arrow",
-          "curl",
-          "tidyverse")
-
-lapply (libs,
-        library,
-        character.only = TRUE) |>
-    
-    invisible()
-```
-
-# Data Importing
+# Data Cleaning: The Heavy Lifting
 
 ```{r}
 
-durls <- sprintf ("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
+durls <- sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
                   202301:202312)
 
-zipPaths <- sprintf ("tripZips/%d-divvy-tripdata.zip",
+zipPaths <- sprintf("tripZips/%d-divvy-tripdata.zip",
                      202301:202312)
 
-filePaths <- sprintf ("tripdata/%d-divvy-tripdata.csv",
+filePaths <- sprintf("tripdata/%d-divvy-tripdata.csv",
                       202301:202312)
 
-zipNames <- sprintf ("%d-divvy-tripdata.zip",
+zipNames <- sprintf("%d-divvy-tripdata.zip",
                      202301:202312)
 
-fileNames <- sprintf ("%d-divvy-tripdata.csv",
+fileNames <- sprintf("%d-divvy-tripdata.csv",
                       202301:202312)
 
 pq_path <- "pq_tripdata"
 
-dir.create ("tripZips")
+dir.create("tripZips")
 
-dir.create ("tripdata")
+dir.create("tripdata")
 
 dir.create ("pq_tripdata")
 
@@ -131,8 +117,6 @@ tibble::tibble (
 
 ```{r}
 
-
-
 # Maybe only need to check ride_id column? Actually, no.
 
 # pick {dplyr}	
@@ -156,18 +140,18 @@ dupTibble <- oneTibble |>
     dplyr::select (started_at:end_station_name) |>
     
     # adds a count of rows for column 'n'
-    dplyr::add_count (started_at,
+    dplyr::add_count(started_at,
                       ended_at,
                       start_station_name,
                       end_station_name) |>
     
     # so that only observations that have been duplicated 1 or more         times are shown
-    dplyr::filter (n > 1) |>
+    dplyr::filter(n > 1) |>
     
     # because we want to see all the rows, not just one row for each obs
-    dplyr::ungroup () |>
+    dplyr::ungroup() |>
     
-    dplyr::arrange (started_at)
+    dplyr::arrange(started_at)
 ```
 
 ```{r}
@@ -261,7 +245,7 @@ Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The cor
 
 oneTibble <- oneTibble |>
     
-    dplyr::distinct(started_at, 
+    dplyr::distinct (started_at, 
                     start_station_name, 
                     ended_at,
                     end_station_name, 
@@ -275,7 +259,6 @@ nrow(oneTibble)
 ```{r}
 oneTibble[3] |>
     
-    # arrange {dplyr}	
     dplyr::arrange ( started_at ) |>
     
     head ()
@@ -284,11 +267,11 @@ oneTibble[3] |>
 ```{r}
 # sorting the entire table by the start_at column
 oneTibble <- oneTibble |>
-    dplyr::arrange ( started_at )
+    dplyr::arrange (started_at)
 ```
 
 ```{r}
-print( head( oneTibble[3]))
+print(head(oneTibble[3]))
 ```
 
 ```{r}
@@ -298,11 +281,12 @@ oneTibble[3] |>
     
     # separate_wider_delim {tidyr}
     tidyr::separate_wider_delim (
-        cols = c ( started_at ),
+        cols = c (started_at),
         delim = " ",
         names = c ("start_date",
                    "start_time"),
-        cols_remove = TRUE ) |>
+        cols_remove = TRUE
+    ) |>
     
     head()
 ```
@@ -311,11 +295,13 @@ oneTibble[3] |>
 
 oneTibble[4] |>
     
-    tidyr::separate_wider_delim ( cols = c(ended_at),
-                           delim = " ",
-                           names = c("end_date", 
-                                    "end_time"),
-                           cols_remove = TRUE ) |>
+    tidyr::separate_wider_delim (
+        cols = c(ended_at),
+        delim = " ",
+        names = c("end_date",
+                  "end_time"),
+        cols_remove = TRUE
+    ) |>
     
     head()
 ```
@@ -328,9 +314,9 @@ Changing the data type of the date columns.
 oneTibble |>
     
     dplyr::mutate (
-        start_date = as.Date(start_date,
+        start_date = lubridate::as_datetime(start_date,
                              format = "%Y-%m-%d"),
-        end_date = as.Date(end_date,
+        end_date = lubridate::as_datetime(end_date,
                            format = "%Y-%m-%d")
     ) 
 
@@ -338,9 +324,9 @@ oneTibble |>
 oneTibble <- oneTibble |>
     
     dplyr::mutate(
-        start_date = as.Date(start_date,
+        start_date = lubridate::as_date(start_date,
                              format = "%Y-%m-%d"),
-        end_date = as.Date(end_date,
+        end_date = lubridate::as_date(end_date,
                            format = "%Y-%m-%d")
     )
 
@@ -350,7 +336,7 @@ oneTibble |>
                    end_time = hms::as_hms(end_time))
     
 oneTibble <- oneTibble |>
-    dplyr::mutate(start_time = hms::as_hms(start_time),
+    dplyr::mutate (start_time = hms::as_hms(start_time),
                   end_time = hms::as_hms(end_time))
 ```
 
@@ -375,14 +361,15 @@ oneTibble <- oneTibble |>
     
     # separate_wider_delim {tidyr}
     tidyr::separate_wider_delim (
-        cols = c ( started_at ),
+        cols = c (started_at),
         delim = " ",
-        names = c ( "start_date", "start_time" ),
-        cols_remove = TRUE )
+        names = c ("start_date", "start_time"),
+        cols_remove = TRUE
+    )
 ```
 
 ```{r}
-tibble_row ( "How many columns?" = ncol ( oneTibble ) )
+tibble_row ("How many columns?" = ncol (oneTibble))
 ```
 
 Now there are 14 columns total.
@@ -407,7 +394,41 @@ tibble::tibble_row("How many columns?" = ncol (oneTibble))
 
 ```{r}
 
-head(oneTibble)
+year(as_datetime(oneTibble[[3]][1:4]))
+
+
+```
+
+```{r}
+oneTibble |>
+    
+    dplyr::group_by(lubridate::month(oneTibble[[started_at]]))
+```
+
+# Data Prep: Lighter Lifting with Apache Arrow
+
+```{r}
+
+# from CSV's, now a single dataframe, to partioned parquet files?
+dir.create("parquets")
+
+arrow::write_parquet(oneTibble, sink = "oneQuet")
+
+dataquet <- arrow::open_dataset("oneQuet",
+                                format = "parquet")
+
+dataquet_month <- dataquet |>
+    dplyr::group_by(month = lubridate::month(started_at))
+
+dataquet_month |>
+    dplyr::group_by(month) |>
+    arrow::write_dataset(path = "parquets",
+                         format = "parquet")
+```
+
+```{r}
+
+
 ```
 
 ## Arrow and DuckDB
@@ -416,43 +437,35 @@ head(oneTibble)
 
 ```{r}
 
-# open_dataset {arrow}	
-trip_dataset <- arrow::open_dataset ( "tripdata", 
-                               format = "csv" )
+trip_dataset <- arrow::open_dataset ("tripdata",
+                                     format = "csv")
 
 trip_dataset |>
     
-    # write_dataset {arrow}	
-    arrow::write_dataset ( path = pq_path,
-                    format = "parquet" )
+    arrow::write_dataset (path = pq_path,
+                          format = "parquet")
 
-trip_dataset_pq <- arrow::open_dataset ( pq_path )
-
-# methods_overwrite {duckplyr}	
-#methods_overwrite()
-
-#methods_restore()
+trip_dataset_pq <- arrow::open_dataset (pq_path)
 
 trip_dataset_pq |>
     
     arrow:to_duckdb () |>
     
-    dplyr::distinct ( pick ( ride_id ) ) |>
+    dplyr::distinct (pick (ride_id)) |>
     
-    dplyr::count ( name = "Distinct Ride ID's" )
+    dplyr::count (name = "Distinct Ride ID's")
 
-# dbConnect {DBI}
-duckCon <- DBI::dbConnect ( duckdb::duckdb ( ) )
+duckCon <- DBI::dbConnect (duckdb::duckdb ())
 
-duckdb::duckdb_register_arrow ( duckCon,
-                                "tripdb_wArrow",
-                                trip_dataset_pq )
+duckdb::duckdb_register_arrow (duckCon,
+                               "tripdb_wArrow",
+                               trip_dataset_pq)
 
-dplyr::tbl ( duckCon,
-
-            "tripdb_wArrow" ) |>
+dplyr::tbl (duckCon,
+            
+            "tripdb_wArrow") |>
     
-            dplyr::distinct ( pick ( ride_id ) ) |>
+    dplyr::distinct (pick (ride_id)) |>
     
-            dplyr::count ( name = "Distinct" )
+    dplyr::count (name = "Distinct")
 ```
