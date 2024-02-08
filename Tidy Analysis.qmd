@@ -40,7 +40,7 @@ dir.create("tripZips")
 
 dir.create("tripdata")
 
-dir.create ("pq_tripdata")
+dir.create("pq_tripdata")
 
 curl::multi_download (durls,
                       destfiles = zipPaths)
@@ -48,6 +48,7 @@ curl::multi_download (durls,
 unz_csv <- function (x = filePaths,
                      y = zipPaths,
                      z = fileNames) {
+    
     for (i in seq(x)) {
         utils::unzip (y[i],
                       z[i])
@@ -60,13 +61,13 @@ unz_csv <- function (x = filePaths,
 
 ```{r}
 
-csvFileList <- list.files (path = "tripdata",
+csvFileList <- list.files(path = "tripdata",
                            full.names = TRUE)
 
 # view {tibble}
-matrix (csvFileList,
-        dimnames = list (seq (csvFileList),
-                         c ("csvfiles")))
+matrix(csvFileList,
+        dimnames = list(seq(csvFileList),
+                         c("csvfiles")))
 ```
 
 ```{r}
@@ -75,7 +76,6 @@ matrix (csvFileList,
 
 # With list_rbind(), map can be used to directly create a dataframe from a list of files
 oneTibble <- purrr::map (csvFileList[1:12], read_csv) |>
-    
     purrr::list_rbind ()
 ```
 
@@ -83,11 +83,11 @@ oneTibble <- purrr::map (csvFileList[1:12], read_csv) |>
 
 ```{r}
 
-typeof (oneTibble)
+typeof(oneTibble)
 
-is_tibble (oneTibble)
+is_tibble(oneTibble)
 
-is.data.frame (oneTibble)
+is.data.frame(oneTibble)
 ```
 
 ```{r}
@@ -95,7 +95,7 @@ oneTibble[1,]
 ```
 
 ```{r}
-originalLength <- length (oneTibble[[1]])
+originalLength <- length(oneTibble[[1]])
 
 print(originalLength)
 ```
@@ -105,11 +105,11 @@ We started with 5,719,877 observations for the time period of Jan-Dec 2023, then
 ```{r}
 
 # drop_na {tidyr}	
-oneTibble <- tidyr::drop_na (oneTibble)
+oneTibble <- tidyr::drop_na(oneTibble)
 ```
 
 ```{r}
-tibble::tibble (
+tibble::tibble(
     Complete_Observations = length (oneTibble [[1]]),
     "Rows Deleted by drop_na()" = originalLength - Complete_Observations
 )
@@ -120,9 +120,8 @@ tibble::tibble (
 # Maybe only need to check ride_id column? Actually, no.
 
 # pick {dplyr}	
-dplyr::distinct (oneTibble, dplyr::pick ("ride_id")) |>
-    
-    dplyr::count (name = "Distinct Ride ID's")
+dplyr::distinct(oneTibble, dplyr::pick ("ride_id")) |>
+    dplyr::count(name = "Distinct Ride ID's")
 ```
 
 Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
@@ -136,42 +135,34 @@ For the sake of this exercise it's assumed that due the logistics of having the 
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column (n) so didn't want to mess with the main dataframe for this.
 
 dupTibble <- oneTibble |>
-    
-    dplyr::select (started_at:end_station_name) |>
-    
+    dplyr::select(started_at:end_station_name) |>
     # adds a count of rows for column 'n'
     dplyr::add_count(started_at,
                       ended_at,
                       start_station_name,
                       end_station_name) |>
-    
     # so that only observations that have been duplicated 1 or more         times are shown
     dplyr::filter(n > 1) |>
-    
     # because we want to see all the rows, not just one row for each obs
     dplyr::ungroup() |>
-    
     dplyr::arrange(started_at)
 ```
 
 ```{r}
 
-print (dupTibble)
-
+print(dupTibble)
 
 paste0("Number of observations with duplicates: ",
        length(dupTibble[[1]]))
 
-
-dplyr::distinct (dupTibble["n"])
+dplyr::distinct(dupTibble["n"])
 ```
 
 By applying distinct() on dupTibble, we see the only distinct value is 2. We can safely conclude that of the duplicates each duplicated observation has only 1 extra copy.
 
 ```{r}
-
 # verify how many rows have/are duplicates
-nrow (dupTibble)
+nrow(dupTibble)
 ```
 
 Number of rows in the dupTibble is 36. Because each duplicated observation has one duplicate (n = 2), expected removed nobs is 18.
@@ -184,7 +175,7 @@ Number of rows in the dupTibble is 36. Because each duplicated observation has o
 
 undupdTibble <- dupTibble |>
     
-    dplyr::distinct (started_at,
+    dplyr::distinct(started_at,
                      start_station_name,
                      ended_at,
                      end_station_name,
@@ -192,40 +183,35 @@ undupdTibble <- dupTibble |>
 ```
 
 ```{r}
-
-print (undupdTibble)
+print(undupdTibble)
 ```
 
 ```{r}
-
-nrow (undupdTibble)
+nrow(undupdTibble)
 ```
 
 Our predicted value for observations in the undupdTibble was indeed 18.
 
 ```{r}
-
 uncorrectDistinct <-
-    dplyr::distinct (oneTibble, dplyr::pick ("ride_id")) |>
-    
-    dplyr::count (name = "Uncorrected Distinct Observations")
+    dplyr::distinct(oneTibble, dplyr::pick("ride_id")) |>
+    dplyr::count(name = "Uncorrected Distinct Observations")
+
 uncorrectDistinct
 ```
 
 ```{r}
-
 correctDistinct <-
-    dplyr::distinct (
+    dplyr::distinct(
         oneTibble,
-        dplyr::pick (
+        dplyr::pick(
             "started_at",
             "start_station_name",
             "ended_at",
             "end_station_name"
         )
     ) |>
-    
-    dplyr::count (name = "Corrected Distinct Observations")
+    dplyr::count(name = "Corrected Distinct Observations")
 
 correctDistinct
 
@@ -244,12 +230,11 @@ Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The cor
 ```{r}
 
 oneTibble <- oneTibble |>
-    
-    dplyr::distinct (started_at, 
+    dplyr::distinct(started_at, 
                     start_station_name, 
                     ended_at,
                     end_station_name, 
-                    .keep_all = TRUE )
+                    .keep_all = TRUE)
 ```
 
 ```{r}
@@ -257,152 +242,9 @@ nrow(oneTibble)
 ```
 
 ```{r}
-oneTibble[3] |>
-    
-    dplyr::arrange ( started_at ) |>
-    
-    head ()
-```
-
-```{r}
 # sorting the entire table by the start_at column
 oneTibble <- oneTibble |>
-    dplyr::arrange (started_at)
-```
-
-```{r}
-print(head(oneTibble[3]))
-```
-
-```{r}
-
-# Split cells
-oneTibble[3] |>
-    
-    # separate_wider_delim {tidyr}
-    tidyr::separate_wider_delim (
-        cols = c (started_at),
-        delim = " ",
-        names = c ("start_date",
-                   "start_time"),
-        cols_remove = TRUE
-    ) |>
-    
-    head()
-```
-
-```{r}
-
-oneTibble[4] |>
-    
-    tidyr::separate_wider_delim (
-        cols = c(ended_at),
-        delim = " ",
-        names = c("end_date",
-                  "end_time"),
-        cols_remove = TRUE
-    ) |>
-    
-    head()
-```
-
-Changing the data type of the date columns.
-
-```{r}
-
-#test
-oneTibble |>
-    
-    dplyr::mutate (
-        start_date = lubridate::as_datetime(start_date,
-                             format = "%Y-%m-%d"),
-        end_date = lubridate::as_datetime(end_date,
-                           format = "%Y-%m-%d")
-    ) 
-
-# changes date columns to the date dataype columns
-oneTibble <- oneTibble |>
-    
-    dplyr::mutate(
-        start_date = lubridate::as_date(start_date,
-                             format = "%Y-%m-%d"),
-        end_date = lubridate::as_date(end_date,
-                           format = "%Y-%m-%d")
-    )
-
-#test
-oneTibble |>
-    dplyr::mutate (start_time = hms::as_hms(start_time),
-                   end_time = hms::as_hms(end_time))
-    
-oneTibble <- oneTibble |>
-    dplyr::mutate (start_time = hms::as_hms(start_time),
-                  end_time = hms::as_hms(end_time))
-```
-
-```{r}
-oneTibble[3] |> head()
-
-oneTibble[3] |>
-    tidyr::separate_wider_delim (
-        cols = c(start_date),
-        delim = "-",
-        names = c("Start Year",
-                  "Start Month",
-                  "Start Day"),
-        cols_remove = FALSE
-    ) |>
-    head()
-```
-
-```{r}
-# Split cells
-oneTibble <- oneTibble |>
-    
-    # separate_wider_delim {tidyr}
-    tidyr::separate_wider_delim (
-        cols = c (started_at),
-        delim = " ",
-        names = c ("start_date", "start_time"),
-        cols_remove = TRUE
-    )
-```
-
-```{r}
-tibble_row ("How many columns?" = ncol (oneTibble))
-```
-
-Now there are 14 columns total.
-
-```{r}
-
-oneTibble <- oneTibble |>
-    
-    tidyr::separate_wider_delim (cols = c(ended_at),
-                                 delim = " ",
-                                 names = c("end_date",
-                                           "end_time"),
-                                 cols_remove = TRUE )
-```
-
-```{r}
-
-tibble::tibble_row("How many columns?" = ncol (oneTibble))
-```
-
- Now there are 15 total columns.
-
-```{r}
-
-year(as_datetime(oneTibble[[3]][1:4]))
-
-
-```
-
-```{r}
-oneTibble |>
-    
-    dplyr::group_by(lubridate::month(oneTibble[[started_at]]))
+    dplyr::arrange(started_at)
 ```
 
 # Data Prep: Lighter Lifting with Apache Arrow
@@ -421,7 +263,6 @@ The multi-file partitioning of the dataset should result in faster queries. Parq
 # Just needed the tidied tibble out of memory and into an actual file. 
 arrow::write_parquet(oneTibble, sink = "oneQuet")
 
-# 
 dataquet <- arrow::open_dataset("oneQuet",
                                 format = "parquet")
 
@@ -479,19 +320,27 @@ You can read in the above link why I would choose to use DuckDB for this project
 
 ```{r}
 
+dataquet <- arrow::open_dataset(sources = "parquets",
+                              format = "parquet")
+
+
 duckCon <- DBI::dbConnect(duckdb::duckdb())
 
 duckdb::duckdb_register_arrow(duckCon,
                               "duckbase",
                               dataquet)
 
+
+```
+
+```{r}
 dplyr::tbl(duckCon,
            "duckbase") |>
     dplyr::distinct(pick(ride_id)) |>
     dplyr::count(name = "Distinct")
 ```
 
-With DuckDB, approx 0.11s to return query results. Did not increase memory usage on my machine.
+With DuckDB, approx 0.11s to return query results.
 
 ```{r}
 dataquet |>
