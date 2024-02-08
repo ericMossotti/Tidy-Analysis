@@ -409,7 +409,9 @@ oneTibble |>
 
 ## Created Parquet Filesystem
 
-The multi-file partioning of the dataset should result in faster queries. Parquet files require less disc space as well.
+The multi-file partitioning of the dataset should result in faster queries. Parquet files require less disc space as well.
+
+[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
 ```{r}
 
@@ -469,13 +471,15 @@ dataquet |>
     system.time()
 ```
 
-## Arrow and DuckDB
+## DuckDB: In memory OLAP Database
 
-[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
+[Why DuckDB?](https://duckdb.org/why_duckdb)
+
+You can read in the above link why I would choose to use DuckDB for this project.
 
 ```{r}
 
-duckCon <- DBI::dbConnect(duckdb::duckdb ())
+duckCon <- DBI::dbConnect(duckdb::duckdb())
 
 duckdb::duckdb_register_arrow(duckCon,
                               "duckbase",
@@ -484,14 +488,31 @@ duckdb::duckdb_register_arrow(duckCon,
 dplyr::tbl(duckCon,
            "duckbase") |>
     dplyr::distinct(pick(ride_id)) |>
-    dplyr::count(name = "Distinct") |>
-    system.time()
+    dplyr::count(name = "Distinct")
 ```
+
+With DuckDB, approx 0.11s to return query results. Did not increase memory usage on my machine.
 
 ```{r}
 dataquet |>
     dplyr::collect() |>
     dplyr::distinct(dplyr::pick(ride_id)) |>
-    dplyr::count(name = "Distinct Ride ID's") |>
-    system.time()
+    dplyr::count(name = "Distinct Ride ID's")
+```
+
+In memory parquet file query took around 2.55s. Personal observation, increased memory usage by about 1GB. Clear advantage goes to: Duckb.
+
+Running SQL syntax to the DuckDB has the same results as dplyr package syntax. Those are relatively faster and more memory efficient.
+
+```{sql, connection = duckCon, output.var = "Distinct"}
+
+SELECT COUNT 
+    (DISTINCT ride_id) AS "Distinct Obs"
+FROM
+    duckbase
+```
+
+```{r}
+
+Distinct
 ```
