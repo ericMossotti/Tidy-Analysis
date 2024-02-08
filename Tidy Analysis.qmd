@@ -407,28 +407,66 @@ oneTibble |>
 
 # Data Prep: Lighter Lifting with Apache Arrow
 
+## Created Parquet Filesystem
+
+The multi-file partioning of the dataset should result in faster queries. Parquet files require less disc space as well.
+
 ```{r}
 
 # from CSV's, now a single dataframe, to partioned parquet files?
-dir.create("parquets")
 
+
+# Just needed the tidied tibble out of memory and into an actual file. 
 arrow::write_parquet(oneTibble, sink = "oneQuet")
 
+# 
 dataquet <- arrow::open_dataset("oneQuet",
                                 format = "parquet")
 
-dataquet_month <- dataquet |>
+dataquet <- dataquet |>
     dplyr::group_by(month = lubridate::month(started_at))
 
-dataquet_month |>
-    dplyr::group_by(month) |>
+dataquet |>
     arrow::write_dataset(path = "parquets",
                          format = "parquet")
+    
+dataquet <- arrow::open_dataset(sources = "parquets",
+                              format = "parquet")
+
+csvset <- arrow::open_dataset(sources = "tripdata",
+                              format = "csv")
+
+onecsvset <- csvset |>
+    arrow::write_csv_arrow(sink = "oneCSVfile")
+
+onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
+
 ```
 
 ```{r}
 
+onecsvset |>
+    dplyr::filter(rideable_type == "classic_bike") |>
+    group_by(month) |>
+    collect() |>
+    system.time()
+```
 
+```{r}
+
+csvset |>
+    dplyr::filter(rideable_type == "classic_bike") |>
+    group_by(month) |>
+    collect() |>
+    system.time()
+```
+
+```{r}
+dataquet |>
+    dplyr::filter(rideable_type == "classic_bike") |>
+    group_by(month) |>
+    collect() |>
+    system.time()
 ```
 
 ## Arrow and DuckDB
@@ -437,35 +475,23 @@ dataquet_month |>
 
 ```{r}
 
-trip_dataset <- arrow::open_dataset ("tripdata",
-                                     format = "csv")
+duckCon <- DBI::dbConnect(duckdb::duckdb ())
 
-trip_dataset |>
-    
-    arrow::write_dataset (path = pq_path,
-                          format = "parquet")
+duckdb::duckdb_register_arrow(duckCon,
+                              "duckbase",
+                              dataquet)
 
-trip_dataset_pq <- arrow::open_dataset (pq_path)
+dplyr::tbl(duckCon,
+           "duckbase") |>
+    dplyr::distinct(pick(ride_id)) |>
+    dplyr::count(name = "Distinct") |>
+    system.time()
+```
 
-trip_dataset_pq |>
-    
-    arrow:to_duckdb () |>
-    
-    dplyr::distinct (pick (ride_id)) |>
-    
-    dplyr::count (name = "Distinct Ride ID's")
-
-duckCon <- DBI::dbConnect (duckdb::duckdb ())
-
-duckdb::duckdb_register_arrow (duckCon,
-                               "tripdb_wArrow",
-                               trip_dataset_pq)
-
-dplyr::tbl (duckCon,
-            
-            "tripdb_wArrow") |>
-    
-    dplyr::distinct (pick (ride_id)) |>
-    
-    dplyr::count (name = "Distinct")
+```{r}
+dataquet |>
+    dplyr::collect() |>
+    dplyr::distinct(dplyr::pick(ride_id)) |>
+    dplyr::count(name = "Distinct Ride ID's") |>
+    system.time()
 ```
