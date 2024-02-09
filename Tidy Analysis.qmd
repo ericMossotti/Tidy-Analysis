@@ -10,7 +10,7 @@ format: html
 toc: true
 ---
 
-```{r include= FALSE}
+```{r include = FALSE}
 
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
@@ -18,9 +18,9 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 # Data Cleaning: The Heavy Lifting
 
 ```{r}
-
-durls <- sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
-                  202301:202312)
+durls <-
+    sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
+            202301:202312)
 
 zipPaths <- sprintf("tripZips/%d-divvy-tripdata.zip",
                      202301:202312)
@@ -60,14 +60,13 @@ unz_csv <- function (x = filePaths,
 ```
 
 ```{r}
-
 csvFileList <- list.files(path = "tripdata",
-                           full.names = TRUE)
+                          full.names = TRUE)
 
 # view {tibble}
 matrix(csvFileList,
-        dimnames = list(seq(csvFileList),
-                         c("csvfiles")))
+       dimnames = list(seq(csvFileList),
+                       c("csvfiles")))
 ```
 
 ```{r}
@@ -138,9 +137,9 @@ dupTibble <- oneTibble |>
     dplyr::select(started_at:end_station_name) |>
     # adds a count of rows for column 'n'
     dplyr::add_count(started_at,
-                      ended_at,
-                      start_station_name,
-                      end_station_name) |>
+                     ended_at,
+                     start_station_name,
+                     end_station_name) |>
     # so that only observations that have been duplicated 1 or more         times are shown
     dplyr::filter(n > 1) |>
     # because we want to see all the rows, not just one row for each obs
@@ -228,7 +227,6 @@ correctionTibble
 Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The corrected nobs after removing one copy of the duplicates since all of them had only one duplicate, resulted in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 observations were removed.
 
 ```{r}
-
 oneTibble <- oneTibble |>
     dplyr::distinct(started_at, 
                     start_station_name, 
@@ -256,9 +254,7 @@ The multi-file partitioning of the dataset should result in faster queries. Parq
 [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
 ```{r}
-
 # from CSV's, now a single dataframe, to partioned parquet files?
-
 
 # Just needed the tidied tibble out of memory and into an actual file. 
 arrow::write_parquet(oneTibble, sink = "oneQuet")
@@ -283,11 +279,9 @@ onecsvset <- csvset |>
     arrow::write_csv_arrow(sink = "oneCSVfile")
 
 onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
-
 ```
 
 ```{r}
-
 onecsvset |>
     dplyr::filter(rideable_type == "classic_bike") |>
     group_by(month) |>
@@ -321,23 +315,49 @@ You can read in the above link why I would choose to use DuckDB for this project
 ```{r}
 
 dataquet <- arrow::open_dataset(sources = "parquets",
-                              format = "parquet")
-
+                                format = "parquet")
 
 duckCon <- DBI::dbConnect(duckdb::duckdb())
 
 duckdb::duckdb_register_arrow(duckCon,
                               "duckbase",
                               dataquet)
+```
 
+```{r}
 
+dplyr::tbl(duckCon,
+           "duckbase") |>
+    dplyr::distinct(ride_id) |>
+    dplyr::count(name = "Distinct Riders")
+```
+
+```{r}
+
+dplyr::tbl(duckCon,
+           "duckbase") |>
+    dplyr::group_by(rideable_type) |>
+    dplyr::summarize(count())
 ```
 
 ```{r}
 dplyr::tbl(duckCon,
            "duckbase") |>
-    dplyr::distinct(pick(ride_id)) |>
-    dplyr::count(name = "Distinct")
+    dplyr::group_by("Months" = lubridate::month(lubridate::as_datetime(started_at))) |>
+    dplyr::summarize(count())
+```
+
+```{r}
+dplyr::tbl(duckCon,
+           "duckbase") |>
+    dplyr::pull(rideable_type)
+```
+
+```{r}
+dplyr::tbl(duckCon, "duckbase") |>
+    dplyr::group_by(start_station_id) |>
+    dplyr::summarize(StationCount = count(), .groups = "keep") |>
+    arrange(StationCount, start_station_id)
 ```
 
 With DuckDB, approx 0.11s to return query results.
@@ -345,13 +365,13 @@ With DuckDB, approx 0.11s to return query results.
 ```{r}
 dataquet |>
     dplyr::collect() |>
-    dplyr::distinct(dplyr::pick(ride_id)) |>
+    dplyr::distinct(ride_id) |>
     dplyr::count(name = "Distinct Ride ID's")
 ```
 
-In memory parquet file query took around 2.55s. Personal observation, increased memory usage by about 1GB. Clear advantage goes to: Duckb.
+In memory parquet file query took around 2.55s. Personal observation, increased memory usage by about 1GB for non-DuckDB queries and around 0.2GB for DuckDB (DDB) queries. Clear advantage goes to: DDB.
 
-Running SQL syntax to the DuckDB has the same results as dplyr package syntax. Those are relatively faster and more memory efficient.
+Running SQL syntax to the DDB has the same results as dplyr package syntax. Those are relatively faster and more memory efficient.
 
 ```{sql, connection = duckCon, output.var = "Distinct"}
 
@@ -362,6 +382,5 @@ FROM
 ```
 
 ```{r}
-
 Distinct
 ```
