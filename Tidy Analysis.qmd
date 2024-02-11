@@ -17,6 +17,8 @@ knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 
 # Data Cleaning: The Heavy Lifting
 
+In the spirit of thriftiness, I hypothesize that data analysis could be made more accessible to individuals and businesses if done a certain way. At first, it would seem that data analysis would be an expensive endeavor but as I learn and think about it more, I am not sure why that has to be the case. Either way, this project is meant as an exercise in professional data analysis where time and money saved makes a difference.
+
 ```{r}
 durls <-
     sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
@@ -247,9 +249,9 @@ oneTibble <- oneTibble |>
 
 # Data Prep: Lighter Lifting with Apache Arrow
 
-## Created Parquet Filesystem
+## Parquet Filesystem
 
-The multi-file partitioning of the dataset should result in faster queries. Parquet files require less disc space as well.
+The multi-file partitioning of the dataset should result in faster queries. Parquet files require less long term storage space than CSV's as well.
 
 [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
@@ -279,6 +281,19 @@ onecsvset <- csvset |>
     arrow::write_csv_arrow(sink = "oneCSVfile")
 
 onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
+```
+
+```{r}
+arrow::to_duckdb(
+    dataquet,
+    con = arrow_duck_connection(),
+    table_name = unique_arrow_tablename(),
+    auto_disconnect = TRUE
+)
+```
+
+```{r}
+duckdb::dbListTables(duckCon)
 ```
 
 ```{r}
@@ -322,19 +337,49 @@ duckCon <- DBI::dbConnect(duckdb::duckdb())
 duckdb::duckdb_register_arrow(duckCon,
                               "duckbase",
                               dataquet)
+
+#duckdb::duckdb_register(duckCon,
+#                        "bigDuck",
+#                        duckBase)
+
+#dplyr::tbl(duck)
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon,
-           "duckbase") |>
-    dplyr::distinct(ride_id) |>
-    dplyr::count(name = "Distinct Riders")
+sql_countRiders <- paste0(
+    "SELECT COUNT(*) AS 'Distinct Riders' ",
+    "FROM (",
+    "SELECT DISTINCT ride_id ",
+    "FROM duckbase)"
+)
+
+qres_countRiders <- duckdb::dbSendQuery (conn = duckCon,
+                                         statement = sql_countRiders)
+
+fetch_countRiders <- duckdb::dbFetch(qres_countRiders)
+
+fetch_countRiders
+
+duckdb::dbClearResult(qres_countRiders)
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon,
+sql_selectHead <- paste0("SELECT(*) ",
+                         "FROM duckbase ",
+                         "LIMIT 10")
+
+qres_selectHead <- duckdb::dbSendQuery(conn = duckCon,
+                                       sql_selectHead)
+
+duckdb::dbFetch(qres_selectHead)
+
+duckdb::dbClearResult(qres_selectHead)
+```
+
+```{r}
+countObj <- dplyr::tbl(duckCon,
            "duckbase") |>
     dplyr::group_by(rideable_type) |>
     dplyr::summarize(count())
@@ -343,8 +388,10 @@ dplyr::tbl(duckCon,
 ```{r}
 dplyr::tbl(duckCon,
            "duckbase") |>
-    dplyr::group_by("Months" = lubridate::month(lubridate::as_datetime(started_at))) |>
-    dplyr::summarize(count())
+    #dplyr::group_by("Month" = lubridate::month(lubridate::as_datetime(started_at))) |>
+    dplyr::group_by(month) |>
+    dplyr::summarize(newvar = count()) |>
+    dplyr::arrange(desc(newvar))
 ```
 
 ```{r}
@@ -357,7 +404,7 @@ dplyr::tbl(duckCon,
 dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(start_station_id) |>
     dplyr::summarize(StationCount = count(), .groups = "keep") |>
-    arrange(StationCount, start_station_id)
+    dplyr::arrange(desc(StationCount), desc(start_station_id))
 ```
 
 With DuckDB, approx 0.11s to return query results.
