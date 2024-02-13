@@ -127,9 +127,9 @@ dplyr::distinct(oneTibble, dplyr::pick ("ride_id")) |>
 
 Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
 
-Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once. One big limitation of this analysis is that it's based on a fictional but realistic dataset.
+Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once. One big limitation of this analysis is that it's based on a simulated dataset. I wanted to reach a broad audience and I know Google Data Analytics course community would be able to relate, at the very least. I have other more specific interests so I'm not limiting myself to fictional datasets by any means, in my mind. I used the course materials as inspiration, mainly for organizational purposes.
 
-For the sake of this exercise it's assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. The other option would be to assume one person could check out and in multiple cycles. It's only happened 18 times over the course of a full year. In the real world, we would want to be absolutely sure, but for this exercise, it is reasonable to assume these are errors.
+For the sake of this exercise I have assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. The other option would be to assume one person could check out multiple cycles. It's only happened 18 times over the course of a full year. I would think that would happen more often because people probably ride in groups often. Scenarios where one person pays and gets Venmo'd later by their friends. In the real world, we would want to be absolutely sure, but for this exercise, it is reasonable to assume these are errors.
 
 ```{r}
 
@@ -248,7 +248,6 @@ oneTibble <- oneTibble |>
 ```
 
 ```{r}
-
 twoTibble <- arrow::read_parquet("oneQuet", as_data_frame = TRUE)
 
 oneTibble <- readr::read_csv("oneCSVfile")
@@ -297,13 +296,9 @@ twoTibble["end_station_id"] |>
             replacement = ""
         )
     )
-
-twoTibble["start_station_name"] |>
-    head()
-
-
-
 ```
+
+It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
 
 # Data Browsing: Lighter Lifting with Apache Arrow
 
@@ -421,6 +416,10 @@ duckdb::dbClearResult(qres_countRiders)
 
 ```{r}
 
+```
+
+```{r}
+
 sql_selectHead <- paste0("SELECT(*) ",
                          "FROM duckbase ",
                          "LIMIT 10")
@@ -455,19 +454,43 @@ qres_ridetypeCounts <- duckdb::dbSendQuery(
     statement = sql_ridetypeCounts
  )
 
-duckdb::dbFetch(qres_ridetypeCounts)
+fres_rideTypeCounts <- duckdb::dbFetch(qres_ridetypeCounts)
 
-duckdb::dbClearResult(qres_ridetypeCounts)
+
+#duckdb::dbClearResult(qres_ridetypeCounts)
+```
+
+```{r}
+fres_rideTypeCounts
+dplyr::glimpse(fres_rideTypeCounts)
+
+
+newPlot <- ggplot2::ggplot(data = fres_rideTypeCounts,
+                           mapping = ggplot2::aes(
+                               rideable_type,
+                               y = 'Count Per Ride-type' * 10^-6))
+
+newPlot2 <- newPlot + ggplot2::geom_col()
+
+newPlot2
+newPlot2 +
+    ggplot2::scale_x_log10()
 ```
 
 ```{r}
 
+
 groupCount_month <- dplyr::tbl(duckCon, "duckbase") |>
-    dplyr::group_by(MonthNum = lubridate::month(lubridate::as_datetime(started_at))) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
     dplyr::summarize(RidesPerMonth = count()) |>
     dplyr::arrange(RidesPerMonth)
 
 groupCount_month
+```
+
+```{r}
+gg <-  ggplot(data = , aes())
 ```
 
 ```{r}
@@ -500,4 +523,11 @@ FROM
 
 ```{r}
 Distinct
+```
+
+# Visuals
+
+```{r}
+
+
 ```
