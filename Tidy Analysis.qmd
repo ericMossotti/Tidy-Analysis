@@ -73,7 +73,7 @@ matrix(csvFileList,
 
 ```{r}
 
-# map {purrr}, 
+# map {purrr}
 
 # With list_rbind(), map can be used to directly create a dataframe from a list of files
 oneTibble <- purrr::map (csvFileList[1:12], read_csv) |>
@@ -247,7 +247,65 @@ oneTibble <- oneTibble |>
     dplyr::arrange(started_at)
 ```
 
-# Data Prep: Lighter Lifting with Apache Arrow
+```{r}
+
+twoTibble <- arrow::read_parquet("oneQuet", as_data_frame = TRUE)
+
+oneTibble <- readr::read_csv("oneCSVfile")
+
+twoTibble["end_station_id"] |>
+    dplyr::group_by(end_station_id) |>
+    dplyr::filter(stringr::str_detect(end_station_id,
+                                      "\\.[:digit:]$")) |>
+    dplyr::count()
+
+#
+twoTibble["end_station_id"] |>
+    dplyr::group_by(end_station_id) |>
+    dplyr::filter(stringr::str_detect(end_station_id,
+                                      "\\.[:digit:]$")) |>
+    dplyr::count()
+
+#
+twoTibble["end_station_id"] |>
+    dplyr::group_by(end_station_id) |>
+    dplyr::filter(stringr::str_detect(end_station_id,
+                                      "[1][0][7][9]")) |>
+    dplyr::count()
+
+##
+oneTibble["end_station_id"] |>
+    dplyr::group_by(end_station_id) |>
+    dplyr::filter(stringr::str_detect(end_station_id,
+                                      "\\.[:digit:]$")) |>
+    dplyr::count()
+
+#
+twoTibble["end_station_id"] |>
+    dplyr::filter(stringr::str_detect(end_station_id,
+                                      "\\.[1-9]$")) |>
+    dplyr::arrange(end_station_id)
+
+#
+twoTibble["end_station_id"] |>
+    dplyr::filter(stringr::str_detect(end_station_id,
+                                      "\\.[:digit:]$")) |>
+    dplyr::mutate(
+        end_station_id = stringr::str_replace(
+            string = end_station_id,
+            pattern = "\\.[:digit:]$",
+            replacement = ""
+        )
+    )
+
+twoTibble["start_station_name"] |>
+    head()
+
+
+
+```
+
+# Data Browsing: Lighter Lifting with Apache Arrow
 
 ## Parquet Filesystem
 
@@ -338,11 +396,8 @@ duckdb::duckdb_register_arrow(duckCon,
                               "duckbase",
                               dataquet)
 
-#duckdb::duckdb_register(duckCon,
-#                        "bigDuck",
-#                        duckBase)
-
-#dplyr::tbl(duck)
+dplyr::tbl(duckCon, "duckbase") |>
+         dplyr::glimpse()
 ```
 
 ```{r}
@@ -354,8 +409,8 @@ sql_countRiders <- paste0(
     "FROM duckbase)"
 )
 
-qres_countRiders <- duckdb::dbSendQuery (conn = duckCon,
-                                         statement = sql_countRiders)
+qres_countRiders <- duckdb::dbSendQuery(conn = duckCon,
+                                        statement = sql_countRiders)
 
 fetch_countRiders <- duckdb::dbFetch(qres_countRiders)
 
@@ -379,32 +434,47 @@ duckdb::dbClearResult(qres_selectHead)
 ```
 
 ```{r}
-countObj <- dplyr::tbl(duckCon,
+groupCount_rideTypes <- dplyr::tbl(duckCon,
            "duckbase") |>
     dplyr::group_by(rideable_type) |>
-    dplyr::summarize(count())
+    dplyr::summarize(rideTypecount = count(), .groups = "keep") |>
+    dplyr::show_query()
+
+groupCount_rideTypes
+#or this
+sql_ridetypeCounts <- paste0(
+    "SELECT rideable_type, count() AS 'Count Per Ride-type' ",
+    "FROM duckbase ",
+    "GROUP BY rideable_type"
+)
+
+sql_ridetypeCounts 
+
+qres_ridetypeCounts <- duckdb::dbSendQuery(
+    conn = duckCon,
+    statement = sql_ridetypeCounts
+ )
+
+duckdb::dbFetch(qres_ridetypeCounts)
+
+duckdb::dbClearResult(qres_ridetypeCounts)
 ```
 
 ```{r}
-dplyr::tbl(duckCon,
-           "duckbase") |>
-    #dplyr::group_by("Month" = lubridate::month(lubridate::as_datetime(started_at))) |>
-    dplyr::group_by(month) |>
-    dplyr::summarize(newvar = count()) |>
-    dplyr::arrange(desc(newvar))
-```
 
-```{r}
-dplyr::tbl(duckCon,
-           "duckbase") |>
-    dplyr::pull(rideable_type)
+groupCount_month <- dplyr::tbl(duckCon, "duckbase") |>
+    dplyr::group_by(MonthNum = lubridate::month(lubridate::as_datetime(started_at))) |>
+    dplyr::summarize(RidesPerMonth = count()) |>
+    dplyr::arrange(RidesPerMonth)
+
+groupCount_month
 ```
 
 ```{r}
 dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(start_station_id) |>
-    dplyr::summarize(StationCount = count(), .groups = "keep") |>
-    dplyr::arrange(desc(StationCount), desc(start_station_id))
+    dplyr::summarize(StationCount = count()) |>
+    dplyr::arrange(StationCount, start_station_id)
 ```
 
 With DuckDB, approx 0.11s to return query results.
