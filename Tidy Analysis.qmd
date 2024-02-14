@@ -15,11 +15,15 @@ toc: true
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-# Data Cleaning: The Heavy Lifting
+# Data Cleaning with R
 
-In the spirit of thriftiness, I hypothesize that data analysis could be made more accessible to individuals and businesses if done a certain way. At first, it would seem that data analysis would be an expensive endeavor but as I learn and think about it more, I am not sure why that has to be the case. Either way, this project is meant as an exercise in professional data analysis where time and money saved makes a difference.
+In the spirit of thriftiness, I hypothesize that data analysis could be made more accessible to individuals and businesses. At first, it would seem that data analysis would be an expensive endeavor but as I learn and think about it more, I am not sure why that has to be the case. Either way, this project is meant as an exercise in professional data analysis where time and money saved makes a difference.
+
+I think ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs and then extracts the files of interest to a separate folder.
 
 ```{r}
+
+# A way to efficiently create a list of download addresses. 
 durls <-
     sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
             202301:202312)
@@ -27,26 +31,37 @@ durls <-
 zipPaths <- sprintf("tripZips/%d-divvy-tripdata.zip",
                      202301:202312)
 
+# Define file paths for .CSVs. 
 filePaths <- sprintf("tripdata/%d-divvy-tripdata.csv",
                       202301:202312)
 
+# Define filenames for the .ZIP and .CSV files. 
 zipNames <- sprintf("%d-divvy-tripdata.zip",
                      202301:202312)
 
+# Define filenames for .CSV's
 fileNames <- sprintf("%d-divvy-tripdata.csv",
                       202301:202312)
 
 pq_path <- "pq_tripdata"
 
+# I need some directories to store the files. 
 dir.create("tripZips")
 
 dir.create("tripdata")
 
 dir.create("pq_tripdata")
+```
 
+```{r}
+# Need to download several compressed files from URLs to the directory destination and filepaths (zipPaths) previously created.
 curl::multi_download (durls,
                       destfiles = zipPaths)
+```
 
+```{r}
+
+# A custom function that makes unzipping and moving files easy and fun.
 unz_csv <- function (x = filePaths,
                      y = zipPaths,
                      z = fileNames) {
@@ -62,19 +77,16 @@ unz_csv <- function (x = filePaths,
 ```
 
 ```{r}
+# Wanted to verify where the extracted data is at. 
 csvFileList <- list.files(path = "tripdata",
                           full.names = TRUE)
 
-# view {tibble}
 matrix(csvFileList,
        dimnames = list(seq(csvFileList),
                        c("csvfiles")))
 ```
 
 ```{r}
-
-# map {purrr}
-
 # With list_rbind(), map can be used to directly create a dataframe from a list of files
 oneTibble <- purrr::map (csvFileList[1:12], read_csv) |>
     purrr::list_rbind ()
@@ -83,7 +95,7 @@ oneTibble <- purrr::map (csvFileList[1:12], read_csv) |>
 ( In R a tibble is synonymous with a data frame )
 
 ```{r}
-
+# Verifying data type for thoroughness. 
 typeof(oneTibble)
 
 is_tibble(oneTibble)
@@ -104,12 +116,12 @@ print(originalLength)
 We started with 5,719,877 observations for the time period of Jan-Dec 2023, then drop_na() removed 1,388,170 of those observations.
 
 ```{r}
-
-# drop_na {tidyr}	
+# Pretty straightforward way to remove incomplete observations.
 oneTibble <- tidyr::drop_na(oneTibble)
 ```
 
 ```{r}
+# Keeping track of observations/rows dropped.
 tibble::tibble(
     Complete_Observations = length (oneTibble [[1]]),
     "Rows Deleted by drop_na()" = originalLength - Complete_Observations
@@ -117,24 +129,19 @@ tibble::tibble(
 ```
 
 ```{r}
-
-# Maybe only need to check ride_id column? Actually, no.
-
-# pick {dplyr}	
+# Maybe only need to check ride_id column? I wish.
 dplyr::distinct(oneTibble, dplyr::pick ("ride_id")) |>
     dplyr::count(name = "Distinct Ride ID's")
 ```
 
 Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
 
-Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once. One big limitation of this analysis is that it's based on a simulated dataset. I wanted to reach a broad audience and I know Google Data Analytics course community would be able to relate, at the very least. I have other more specific interests so I'm not limiting myself to fictional datasets by any means, in my mind. I used the course materials as inspiration, mainly for organizational purposes.
+Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once. One big limitation of this analysis is that it's based on a simulated dataset. I wanted to reach a broad audience and I know the Google Data Analytics course community would be able to relate, at the very least. I used the course materials as inspiration, mainly for bootstrapping myself and for organizational purposes.
 
-For the sake of this exercise I have assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. The other option would be to assume one person could check out multiple cycles. It's only happened 18 times over the course of a full year. I would think that would happen more often because people probably ride in groups often. Scenarios where one person pays and gets Venmo'd later by their friends. In the real world, we would want to be absolutely sure, but for this exercise, it is reasonable to assume these are errors.
+For the sake of this exercise I have assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. Another option would be to assume one person could check out multiple cycles at once. But it has only happened 18 times over the course of a full year. I would think that would happen more often because people probably ride in groups often. Scenarios where one person pays and gets Venmo'd later by their friends, come to mind. In the real world, we would want to be absolutely sure, but for this exercise, it is reasonable to assume these are errors.
 
 ```{r}
-
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column (n) so didn't want to mess with the main dataframe for this.
-
 dupTibble <- oneTibble |>
     dplyr::select(started_at:end_station_name) |>
     # adds a count of rows for column 'n'
@@ -142,7 +149,7 @@ dupTibble <- oneTibble |>
                      ended_at,
                      start_station_name,
                      end_station_name) |>
-    # so that only observations that have been duplicated 1 or more         times are shown
+    # so that only observations that have been duplicated 1 or more                   times are shown
     dplyr::filter(n > 1) |>
     # because we want to see all the rows, not just one row for each obs
     dplyr::ungroup() |>
@@ -150,7 +157,6 @@ dupTibble <- oneTibble |>
 ```
 
 ```{r}
-
 print(dupTibble)
 
 paste0("Number of observations with duplicates: ",
@@ -169,11 +175,9 @@ nrow(dupTibble)
 Number of rows in the dupTibble is 36. Because each duplicated observation has one duplicate (n = 2), expected removed nobs is 18.
 
 ```{r}
-
-# issue is, we need to get rid of not all of these rows, but just the extra duplicate observations. 
+# The issue is, we need to get rid of not all of these rows, but just the extra duplicate observations. 
 
 # If there were 2 rows of duplicates, we would want to end up with 1 row after removing the extras.
-
 undupdTibble <- dupTibble |>
     
     dplyr::distinct(started_at,
@@ -226,7 +230,7 @@ correctionTibble <-
 correctionTibble
 ```
 
-Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The corrected nobs after removing one copy of the duplicates since all of them had only one duplicate, resulted in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 observations were removed.
+Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The corrected nobs after removing one copy of the duplicates since all of them had only one duplicate, resulted in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 additional observations were removed.
 
 ```{r}
 oneTibble <- oneTibble |>
@@ -247,9 +251,91 @@ oneTibble <- oneTibble |>
     dplyr::arrange(started_at)
 ```
 
+```{}
+```
+
+It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
+
+# Exploratory Data Analysis
+
+## Parquet Filesystem
+
+The multi-file partitioning of the dataset should result in faster queries. Parquet files require less long term storage space than CSV's as well.
+
+[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
+
+### Comparing Parquet and .CSV Performance
+
 ```{r}
+
+# Move tibble out of memory and into a long term storage file(s). 
+arrow::write_parquet(oneTibble, sink = "oneQuet")
+
+# Create a dataset.
+dataquet <- arrow::open_dataset("oneQuet",
+                                format = "parquet")
+
+# Create partitioned dataset.
+dataquet <- dataquet |>
+    dplyr::group_by(month = lubridate::month(started_at))
+
+# Write a partitioned backup filesystem so we don't have to do any of the above steps again moving forward. 
+dataquet |>
+    arrow::write_dataset(path = "parquets",
+                         format = "parquet")
+
+# Dataset needs to point towards the new partitioned parquet file system.
+dataquet <- arrow::open_dataset(sources = "parquets",
+                              format = "parquet")
+
+# Dataset that points towards our original CSV file system (can it be considered "partitioned"?)  
+csvset <- arrow::open_dataset(sources = "tripdata",
+                              format = "csv")
+
+# I also wanted to test performance of dataset based on "un-partitioned" .CSV file system
+onecsvset <- csvset |>
+    arrow::write_csv_arrow(sink = "oneCSVfile")
+
+# Arrow dataset that points to one .CSV file
+onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
+```
+
+We test the performance of queries to a one .CSV file dataset.
+
+```{r}
+onecsvset |>
+    dplyr::filter(rideable_type == "classic_bike") |>
+    group_by(month) |>
+    collect() |>
+    system.time()
+```
+
+Testing the performance of queries to a "partitioned" .CSV file dataset.
+
+```{r}
+
+csvset |>
+    dplyr::filter(rideable_type == "classic_bike") |>
+    group_by(month) |>
+    collect() |>
+    system.time()
+```
+
+Testing the performance of queries to a partitioned .Parquet file dataset.
+
+```{r}
+dataquet |>
+    dplyr::filter(rideable_type == "classic_bike") |>
+    group_by(month) |>
+    collect() |>
+    system.time()
+```
+
+```{r}
+# Need to open a tibble again to do some more testing. Opening from parquet file made previously. 
 twoTibble <- arrow::read_parquet("oneQuet", as_data_frame = TRUE)
 
+# Having file backups of data comes in handy. 
 oneTibble <- readr::read_csv("oneCSVfile")
 
 twoTibble["end_station_id"] |>
@@ -298,90 +384,13 @@ twoTibble["end_station_id"] |>
     )
 ```
 
-It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
-
-# Data Browsing: Lighter Lifting with Apache Arrow
-
-## Parquet Filesystem
-
-The multi-file partitioning of the dataset should result in faster queries. Parquet files require less long term storage space than CSV's as well.
-
-[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
-
-```{r}
-# from CSV's, now a single dataframe, to partioned parquet files?
-
-# Just needed the tidied tibble out of memory and into an actual file. 
-arrow::write_parquet(oneTibble, sink = "oneQuet")
-
-dataquet <- arrow::open_dataset("oneQuet",
-                                format = "parquet")
-
-dataquet <- dataquet |>
-    dplyr::group_by(month = lubridate::month(started_at))
-
-dataquet |>
-    arrow::write_dataset(path = "parquets",
-                         format = "parquet")
-    
-dataquet <- arrow::open_dataset(sources = "parquets",
-                              format = "parquet")
-
-csvset <- arrow::open_dataset(sources = "tripdata",
-                              format = "csv")
-
-onecsvset <- csvset |>
-    arrow::write_csv_arrow(sink = "oneCSVfile")
-
-onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
-```
-
-```{r}
-arrow::to_duckdb(
-    dataquet,
-    con = arrow_duck_connection(),
-    table_name = unique_arrow_tablename(),
-    auto_disconnect = TRUE
-)
-```
-
-```{r}
-duckdb::dbListTables(duckCon)
-```
-
-```{r}
-onecsvset |>
-    dplyr::filter(rideable_type == "classic_bike") |>
-    group_by(month) |>
-    collect() |>
-    system.time()
-```
-
-```{r}
-
-csvset |>
-    dplyr::filter(rideable_type == "classic_bike") |>
-    group_by(month) |>
-    collect() |>
-    system.time()
-```
-
-```{r}
-dataquet |>
-    dplyr::filter(rideable_type == "classic_bike") |>
-    group_by(month) |>
-    collect() |>
-    system.time()
-```
-
 ## DuckDB: In memory OLAP Database
 
 [Why DuckDB?](https://duckdb.org/why_duckdb)
 
-You can read in the above link why I would choose to use DuckDB for this project.
+You can read in the above link why I would choose to use DuckDB and OLAP for this project.
 
 ```{r}
-
 dataquet <- arrow::open_dataset(sources = "parquets",
                                 format = "parquet")
 
@@ -394,6 +403,8 @@ duckdb::duckdb_register_arrow(duckCon,
 dplyr::tbl(duckCon, "duckbase") |>
          dplyr::glimpse()
 ```
+
+## SQL Queries
 
 ```{r}
 
@@ -415,11 +426,6 @@ duckdb::dbClearResult(qres_countRiders)
 ```
 
 ```{r}
-
-```
-
-```{r}
-
 sql_selectHead <- paste0("SELECT(*) ",
                          "FROM duckbase ",
                          "LIMIT 10")
@@ -442,7 +448,7 @@ groupCount_rideTypes <- dplyr::tbl(duckCon,
 groupCount_rideTypes
 #or this
 sql_ridetypeCounts <- paste0(
-    "SELECT rideable_type, count() AS 'Count Per Ride-type' ",
+    "SELECT rideable_type, count() AS 'rt_counts' ",
     "FROM duckbase ",
     "GROUP BY rideable_type"
 )
@@ -455,8 +461,6 @@ qres_ridetypeCounts <- duckdb::dbSendQuery(
  )
 
 fres_rideTypeCounts <- duckdb::dbFetch(qres_ridetypeCounts)
-
-
 #duckdb::dbClearResult(qres_ridetypeCounts)
 ```
 
@@ -464,22 +468,16 @@ fres_rideTypeCounts <- duckdb::dbFetch(qres_ridetypeCounts)
 fres_rideTypeCounts
 dplyr::glimpse(fres_rideTypeCounts)
 
-
 newPlot <- ggplot2::ggplot(data = fres_rideTypeCounts,
                            mapping = ggplot2::aes(
-                               rideable_type,
-                               y = 'Count Per Ride-type' * 10^-6))
+                               x = rideable_type,
+                               y = rt_counts)) +
+    ggplot2::geom_col(fill = "red")
 
-newPlot2 <- newPlot + ggplot2::geom_col()
-
-newPlot2
-newPlot2 +
-    ggplot2::scale_x_log10()
+newPlot
 ```
 
 ```{r}
-
-
 groupCount_month <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(MonthNum = lubridate::month(
         lubridate::as_datetime(started_at))) |>
@@ -487,10 +485,6 @@ groupCount_month <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::arrange(RidesPerMonth)
 
 groupCount_month
-```
-
-```{r}
-gg <-  ggplot(data = , aes())
 ```
 
 ```{r}
