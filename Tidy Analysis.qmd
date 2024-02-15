@@ -11,19 +11,17 @@ toc: true
 ---
 
 ```{r include = FALSE}
-
 knitr::opts_chunk$set(message = FALSE, warning = FALSE)
 ```
 
-# Data Cleaning with R
+# Data Cleaning with R and SQL
 
 In the spirit of thriftiness, I hypothesize that data analysis could be made more accessible to individuals and businesses. At first, it would seem that data analysis would be an expensive endeavor but as I learn and think about it more, I am not sure why that has to be the case. Either way, this project is meant as an exercise in professional data analysis where time and money saved makes a difference.
 
-I think ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs and then extracts the files of interest to a separate folder.
+I think .ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs and then extracts the files of interest to a separate folder.
 
 ```{r}
-
-# A way to efficiently create a list of download addresses. 
+# Efficiently create a list of download addresses. 
 durls <-
     sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
             202301:202312)
@@ -60,7 +58,6 @@ curl::multi_download (durls,
 ```
 
 ```{r}
-
 # A custom function that makes unzipping and moving files easy and fun.
 unz_csv <- function (x = filePaths,
                      y = zipPaths,
@@ -92,23 +89,18 @@ oneTibble <- purrr::map (csvFileList[1:12], read_csv) |>
     purrr::list_rbind ()
 ```
 
-( In R a tibble is synonymous with a data frame )
-
 ```{r}
-# Verifying data type for thoroughness. 
-typeof(oneTibble)
-
-is_tibble(oneTibble)
-
-is.data.frame(oneTibble)
+oneDT <- do.call(rbind,
+                 lapply(csvFileList,
+                        data.table::fread))
 ```
 
 ```{r}
-oneTibble[1,]
+oneDT[1,]
 ```
 
 ```{r}
-originalLength <- length(oneTibble[[1]])
+origObserves <- length(oneDT[[1]])
 
 print(originalLength)
 ```
@@ -117,13 +109,13 @@ We started with 5,719,877 observations for the time period of Jan-Dec 2023, then
 
 ```{r}
 # Pretty straightforward way to remove incomplete observations.
-oneTibble <- tidyr::drop_na(oneTibble)
+oneDT <- tidyr::drop_na(oneDT)
 ```
 
 ```{r}
 # Keeping track of observations/rows dropped.
 tibble::tibble(
-    Complete_Observations = length (oneTibble [[1]]),
+    Complete_Observations = length(oneTibble [[1]]),
     "Rows Deleted by drop_na()" = originalLength - Complete_Observations
 )
 ```
@@ -198,11 +190,11 @@ nrow(undupdTibble)
 Our predicted value for observations in the undupdTibble was indeed 18.
 
 ```{r}
-uncorrectDistinct <-
+incorrectDistinct <-
     dplyr::distinct(oneTibble, dplyr::pick("ride_id")) |>
-    dplyr::count(name = "Uncorrected Distinct Observations")
+    dplyr::count(name = "Inccorrect Distinct Observations")
 
-uncorrectDistinct
+incorrectDistinct
 ```
 
 ```{r}
@@ -219,7 +211,9 @@ correctDistinct <-
     dplyr::count(name = "Corrected Distinct Observations")
 
 correctDistinct
+```
 
+```{r}
 correctionTibble <-
     tibble::tibble(
         Uncorrected = uncorrectDistinct[[1]],
@@ -251,12 +245,9 @@ oneTibble <- oneTibble |>
     dplyr::arrange(started_at)
 ```
 
-```{}
-```
-
 It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
 
-# Exploratory Data Analysis
+# Efficiency Side-Quest
 
 ## Parquet Filesystem
 
@@ -296,11 +287,11 @@ csvset <- arrow::open_dataset(sources = "tripdata",
 onecsvset <- csvset |>
     arrow::write_csv_arrow(sink = "oneCSVfile")
 
-# Arrow dataset that points to one .CSV file
+# Arrow dataset needs to point to the .CSV file
 onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
 ```
 
-We test the performance of queries to a one .CSV file dataset.
+We test the performance of a query to a one .CSV file dataset.
 
 ```{r}
 onecsvset |>
@@ -310,10 +301,9 @@ onecsvset |>
     system.time()
 ```
 
-Testing the performance of queries to a "partitioned" .CSV file dataset.
+Testing the performance of a query to a "partitioned" .CSV file dataset.
 
 ```{r}
-
 csvset |>
     dplyr::filter(rideable_type == "classic_bike") |>
     group_by(month) |>
@@ -321,7 +311,7 @@ csvset |>
     system.time()
 ```
 
-Testing the performance of queries to a partitioned .Parquet file dataset.
+Testing the performance of a query to a partitioned .Parquet file dataset.
 
 ```{r}
 dataquet |>
@@ -332,7 +322,7 @@ dataquet |>
 ```
 
 ```{r}
-# Need to open a tibble again to do some more testing. Opening from parquet file made previously. 
+# Need to open a tibble again to do some more testing. Opening from .Parquet file made previously. 
 twoTibble <- arrow::read_parquet("oneQuet", as_data_frame = TRUE)
 
 # Having file backups of data comes in handy. 
@@ -391,15 +381,18 @@ twoTibble["end_station_id"] |>
 You can read in the above link why I would choose to use DuckDB and OLAP for this project.
 
 ```{r}
+# Open .Parquet file dataset connection pointer
 dataquet <- arrow::open_dataset(sources = "parquets",
                                 format = "parquet")
-
+# Establish a new connection to a virtual in memory DuckDB database
 duckCon <- DBI::dbConnect(duckdb::duckdb())
 
+# Register the dataset connection object to a location in the DDB
 duckdb::duckdb_register_arrow(duckCon,
                               "duckbase",
                               dataquet)
 
+# Viewing some metadata of the new location
 dplyr::tbl(duckCon, "duckbase") |>
          dplyr::glimpse()
 ```
@@ -407,7 +400,6 @@ dplyr::tbl(duckCon, "duckbase") |>
 ## SQL Queries
 
 ```{r}
-
 sql_countRiders <- paste0(
     "SELECT COUNT(*) AS 'Distinct Riders' ",
     "FROM (",
@@ -426,15 +418,17 @@ duckdb::dbClearResult(qres_countRiders)
 ```
 
 ```{r}
+# Makes formatting simpler for SQL syntax
 sql_selectHead <- paste0("SELECT(*) ",
                          "FROM duckbase ",
                          "LIMIT 10")
 
+# Query result variable
 qres_selectHead <- duckdb::dbSendQuery(conn = duckCon,
                                        sql_selectHead)
-
+# Results of query in the form of a dataframe
 duckdb::dbFetch(qres_selectHead)
-
+# To save on overall memory overhead
 duckdb::dbClearResult(qres_selectHead)
 ```
 
@@ -443,7 +437,6 @@ groupCount_rideTypes <- dplyr::tbl(duckCon,
            "duckbase") |>
     dplyr::group_by(rideable_type) |>
     dplyr::summarize(rideTypecount = count(), .groups = "keep") |>
-    dplyr::show_query()
 
 groupCount_rideTypes
 #or this
@@ -505,7 +498,7 @@ dataquet |>
 
 In memory parquet file query took around 2.55s. Personal observation, increased memory usage by about 1GB for non-DuckDB queries and around 0.2GB for DuckDB (DDB) queries. Clear advantage goes to: DDB.
 
-Running SQL syntax to the DDB has the same results as dplyr package syntax. Those are relatively faster and more memory efficient.
+Running SQL syntax to the DDB has the same results as dplyr package syntax. These are relatively faster and more memory efficient than querying an in memory dataframe.
 
 ```{sql, connection = duckCon, output.var = "Distinct"}
 
@@ -519,9 +512,115 @@ FROM
 Distinct
 ```
 
-# Visuals
+```{sql, connection = duckCon, output.var = "MonthlyRiders"}
+
+SELECT MonthNum, AVG(COUNT) AS RidesPerMonth
+FROM (
+    SELECT duckbase.*,
+    EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
+    FROM duckbase
+)
+GROUP BY MonthNum
+ORDER BY RidesPerMonth
+```
+
+```{sql, connection = duckCon, output.var = "MonthlyAVG"}
+
+SELECT AVG(RidesPerMonth) AS "MonthlyAVG"
+FROM (
+  SELECT MonthNum, COUNT() AS RidesPerMonth
+  FROM (
+    SELECT
+      duckbase.*,
+      EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
+    FROM duckbase
+  )
+  GROUP BY MonthNum
+)
+```
 
 ```{r}
 
+newConnection <- dplyr::tbl(duckCon, "duckbase") |>
+    dplyr::select(started_at, member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "casual") |>
+    dplyr::summarize(Casuals = count(member_casual))
 
+
+newConnection2 <- dplyr::tbl(duckCon, "duckbase") |>
+    dplyr::select(started_at, member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "member") |>
+    dplyr::summarize(Members = count(member_casual))
+
+    
+    # dplyr::group_by(member_casual) |>
+    #dplyr::summarize(Membership = count())
+
+    #dplyr::group_by(MonthNum = lubridate::month(
+    #    lubridate::as_datetime(started_at))) |>
+
+newConnection2
+```
+
+```{r}
+newConnection
+```
+
+```{r}
+groupCount_month <- dplyr::tbl(duckCon, "duckbase") |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::summarize(RidesPerMonth = count()) |>
+    dplyr::summarize(mean(RidesPerMonth))
+```
+
+```{r}
+groupCount_month <- dplyr::tbl(duckCon, "duckbase") |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::summarize(RidesPerMonth = count()) |>
+    dplyr::arrange(RidesPerMonth) |>
+    dplyr::show_query()
+```
+
+```{sql, connection = duckCon, output.var = "what"}
+
+SELECT month, COUNT(member_casual)
+FROM duckbase
+GROUP BY month
+ORDER BY month
+```
+
+```{r}
+what
+```
+
+```{r}
+
+```
+
+# Descriptive Statistics
+
+#### Stats: Monthly Average
+
+```{sql, connection = duckCon, output.var = "MonthlyAVG"}
+
+SELECT AVG(RidesPerMonth) AS "MonthlyAVG"
+FROM (
+  SELECT MonthNum, COUNT() AS RidesPerMonth
+  FROM (
+    SELECT
+      duckbase.*,
+      EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
+    FROM duckbase
+  )
+  GROUP BY MonthNum
+```
+
+```{r}
+cat(stringr::str_c(as.integer(MonthlyAVG)))
 ```
