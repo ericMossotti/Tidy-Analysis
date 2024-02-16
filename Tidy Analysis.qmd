@@ -546,8 +546,8 @@ newConnection <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(MonthNum = lubridate::month(
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "casual") |>
-    dplyr::summarize(Casuals = count(member_casual))
-
+    dplyr::summarize(Casuals = count(member_casual)) |>
+    dplyr::show_query()
 
 newConnection2 <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::select(started_at, member_casual) |>
@@ -556,14 +556,21 @@ newConnection2 <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::filter(member_casual == "member") |>
     dplyr::summarize(Members = count(member_casual))
 
-    
-    # dplyr::group_by(member_casual) |>
-    #dplyr::summarize(Membership = count())
+newConnection
+```
 
-    #dplyr::group_by(MonthNum = lubridate::month(
-    #    lubridate::as_datetime(started_at))) |>
+```{r}
 
-newConnection2
+newConnection <- dplyr::tbl(duckCon, "duckbase") |>
+    dplyr::select(started_at, member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "casual") |>
+    dplyr::summarize(Casuals = count()) |>
+    dplyr::summarize(AvgCasuals = mean(Casuals)) |>
+    dplyr::show_query()
+
+newConnection
 ```
 
 ```{r}
@@ -575,7 +582,10 @@ groupCount_month <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(MonthNum = lubridate::month(
         lubridate::as_datetime(started_at))) |>
     dplyr::summarize(RidesPerMonth = count()) |>
-    dplyr::summarize(mean(RidesPerMonth))
+    dplyr::summarize(mean(RidesPerMonth)) |>
+    dplyr::show_query()
+
+groupCount_month
 ```
 
 ```{r}
@@ -599,10 +609,6 @@ ORDER BY month
 what
 ```
 
-```{r}
-
-```
-
 # Descriptive Statistics
 
 #### Stats: Monthly Average
@@ -619,8 +625,50 @@ FROM (
     FROM duckbase
   )
   GROUP BY MonthNum
+)
 ```
 
 ```{r}
 cat(stringr::str_c(as.integer(MonthlyAVG)))
+```
+
+```{sql, connection = duckCon, output.var = "Month_Casuals"}
+
+SELECT MonthNum, COUNT(member_casual)) AS Casuals
+FROM (
+  SELECT
+    started_at,
+    member_casual,
+    EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
+  FROM duckbase
+  WHERE (member_casual = 'casual')
+)
+GROUP BY MonthNum
+```
+
+```{r}
+Month_Casuals
+```
+
+#### Average Casuals Per Month
+
+```{sql, connection = duckCon, output.var = "AVG_casuals_monthly"}
+
+SELECT AVG(Casuals) AS AvgCasuals
+FROM (
+  SELECT MonthNum, COUNT() AS Casuals
+  FROM (
+    SELECT
+      started_at,
+      member_casual,
+      EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
+    FROM duckbase
+    WHERE (member_casual = 'casual')
+  )
+  GROUP BY MonthNum
+)
+```
+
+```{r}
+cat(stringr::str_c(as.integer(AVG_casuals_monthly)))
 ```
