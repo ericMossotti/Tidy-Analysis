@@ -191,7 +191,7 @@ Our predicted value for observations in the undupdTibble was indeed 18.
 ```{r}
 incorrectDistinct <-
     dplyr::distinct(oneTibble, dplyr::pick("ride_id")) |>
-    dplyr::count(name = "Inccorrect Distinct Observations")
+    dplyr::count(name = "Incorrect Distinct Observations")
 
 incorrectDistinct
 ```
@@ -432,7 +432,7 @@ duckdb::dbClearResult(qres_selectHead)
 ```
 
 ```{r}
-groupCount_rideTypes <- dplyr::tbl(duckCon, "duckbase") |>
+rCounts_types <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(rideable_type) |>
     dplyr::summarize(rideTypecount = count(), .groups = "keep")
 
@@ -493,11 +493,6 @@ FROM
     duckbase
 ```
 
-```{r}
-
-Distinct
-```
-
 ```{sql, connection = duckCon, output.var = "MonthlyRiders"}
 
 SELECT MonthNum, AVG(COUNT) AS RidesPerMonth
@@ -525,51 +520,12 @@ FROM (
 )
 ```
 
-```         
-```
-
-```{r}
-
-avg_MonthlyCasuals <- dplyr::tbl(duckCon, "duckbase") |>
-    dplyr::select(started_at, member_casual) |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::filter(member_casual == "casual") |>
-    dplyr::summarize(Casuals = count()) |>
-    dplyr::summarize(AvgCasuals = mean(Casuals))
-```
-
-```{r}
-
-avg_MonthlyRiders <- dplyr::tbl(duckCon, "duckbase") |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::summarize(RidesPerMonth = count()) |>
-    dplyr::summarize(mean(RidesPerMonth))
-```
-
-```{r}
-
-rsums_MonthlyRiders <- dplyr::tbl(duckCon, "duckbase") |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::summarize(RidesPerMonth = count()) |>
-    dplyr::arrange(RidesPerMonth)
-
-rsums_MonthlyRiders
-```
-
 ```{sql, connection = duckCon, output.var = "sql_counts_month_rides"}
 
 SELECT month, COUNT(member_casual) AS Rider_count
 FROM duckbase
 GROUP BY month
 ORDER BY month
-```
-
-```{r}
-
-sqlSums_monthlyRiders
 ```
 
 # Descriptive Statistics
@@ -612,7 +568,7 @@ GROUP BY MonthNum
 
 #### Average Casuals Per Month
 
-```{sql, connection = duckCon, output.var = "sql_avg_month_casual"}
+```{sql, connection = duckCon, output.var = "sql_AVG_casual"}
 
 SELECT AVG(Casuals) AS AvgCasuals
 FROM (
@@ -635,45 +591,6 @@ cat(stringr::str_c(as.integer(AVG_casuals_monthly)))
 ```
 
 # testing section
-
-```{r}
-
-rsums_month_casual <-
-    dplyr::tbl(duckCon, "duckbase") |> 
-    dplyr::select(started_at, member_casual) |> 
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |> 
-    dplyr::filter(member_casual == "casual") |>
-    dplyr::summarize(Casuals = count(member_casual))
-
-rsums_month_member <-
-    dplyr::tbl(duckCon, "duckbase") |> 
-    dplyr::select(started_at, member_casual) |> 
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |> 
-    dplyr::filter(member_casual == "member") |> 
-    dplyr::summarize(Members = count(member_casual))
-
-rsums_month_casual
-rsums_month_member
-```
-
-```{r}
-
-r_counts_month_e_casuals <-
-    dplyr::tbl(duckCon, "duckbase") |> 
-    dplyr::select(started_at, 
-                  member_casual, 
-                  rideable_type) |> 
-    dplyr::group_by(
-        MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |> 
-    dplyr::filter(member_casual == "casual",
-                  rideable_type == "electric_bike") |>
-    dplyr::summarize(CasualsOnElectric = count(member_casual))
-
-rsums_month_e_casuals
-```
 
 ```{sql, connection = duckCon, output.var = "sql_counts_month_casual_e"}
 
@@ -729,38 +646,15 @@ DROP TABLE all_Electric
 
 ```{r}
 
-listDuckDBinfo <- function(duckCon) {
+duckdb::duckdb_list_arrow (duckCon)
     
-    duckdb::duckdb_list_arrow (duckCon)
+duckdb::dbListTables(duckCon)
     
-    duckdb::dbListTables(duckCon)
-    
-    dplyr::tbl(duckCon, "tbl_eCasuals") |>
+dplyr::tbl(duckCon, "tbl_eCasuals") |>
         dplyr::select_all()
     
-    dplyr::tbl(duckCon, "tbl_eMembers") |>
-        dplyr::select_all()
-}
-```
-
-```{sql, connection = duckCon}
-
-CREATE TABLE all_Electric AS
-SELECT tbl_eCasuals.*, tbl_eMembers.*
-FROM tbl_eCasuals
-LEFT JOIN tbl_eMembers 
-WHERE tbl_eMembers.MonthNum = tbl_eCasuals.MonthNum
-```
-
-```{r}
-
-allElectric_tbl <- dplyr::tbl(duckCon, 
-                              "tbl_eMembers") |>
-    dplyr::left_join(y = dplyr::tbl(duckCon, 
-                                    "tbl_eCasuals")) |>
-    dplyr::show_query()
-
-allElectric_tbl
+dplyr::tbl(duckCon, "tbl_eMembers") |>
+    dplyr::select_all()
 ```
 
 ```{sql, connection = duckCon}
@@ -769,4 +663,111 @@ SELECT tbl_eMembers.*, CasualsOnElectric
 FROM tbl_eMembers
 LEFT JOIN tbl_eCasuals
   ON (tbl_eMembers.MonthNum = tbl_eCasuals.MonthNum)
+```
+
+### One Big Table?
+
+```{r}
+
+duckdb::duckdb_list_arrow(duckCon)
+
+
+
+rAvg_riders <-
+    dplyr::tbl(duckCon,
+               "duckbase") |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::summarize(RidesPerMonth = count()) |>
+    dplyr::summarize(mean(RidesPerMonth))
+
+rAvg_casuals <-
+    dplyr::tbl(duckCon,
+               "duckbase") |>
+    dplyr::select(started_at, member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "casual") |>
+    dplyr::summarize(Casuals = count()) |>
+    dplyr::summarize(AvgCasuals = mean(Casuals))
+
+rCounts_monthlyRides <-
+    dplyr::tbl(duckCon,
+               "duckbase") |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::summarize(RidesPerMonth = count()) |>
+    dplyr::arrange(RidesPerMonth)
+
+rCounts_eCasuals <-
+    dplyr::tbl(duckCon,
+               "duckbase") |>
+    dplyr::select(started_at,
+                  member_casual,
+                  rideable_type) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "casual",
+                  rideable_type == "electric_bike") |>
+    dplyr::summarize(CasualsOnElectric = count(member_casual))
+
+rCounts_casuals <-
+    dplyr::tbl(duckCon,
+               "duckbase") |>
+    dplyr::select(started_at,
+                  member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "casual") |>
+    dplyr::summarize(Casuals = count(member_casual))
+
+rCounts_members <-
+    dplyr::tbl(duckCon,
+               "duckbase") |>
+    dplyr::select(started_at, member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "member") |>
+    dplyr::summarize(Members = count(member_casual))
+
+rCounts_types <- dplyr::tbl(duckCon,
+                            "duckbase") |>
+    dplyr::group_by(rideable_type) |>
+    dplyr::summarize(rideTypecount = count(),
+                     .groups = "keep")
+```
+
+```{r}
+# new table, from duckbase
+monthly_stats <- dplyr::tbl(duckCon,
+                            "tbl_eMembers") |>
+    dplyr::left_join(y = dplyr::tbl(duckCon,
+                                    "tbl_eCasuals"))
+
+duckdb::dbWriteTable(
+    duckCon,
+    "Monthly_Counts")
+
+rCounts_monthlyRides <-
+    dplyr::tbl(duckCon,
+               "duckbase") |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::summarize(RidesPerMonth = count()) |>
+    dplyr::arrange(MonthNum) |>
+    dplyr::compute()
+
+df <- as.data.frame(rCounts_monthlyRides)
+
+duckdb::dbWriteTable( duckCon,
+                      "MonthlyCounts",
+                      df)
+
+
+duckdb::dbWriteTable ( duckCon,
+                      "MonthlyCounts1",
+                      rCounts_monthlyRides)
+
+
+duckdb::dbListFields(duckCon, "MonthlyCounts")
 ```
