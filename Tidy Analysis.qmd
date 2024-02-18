@@ -11,18 +11,24 @@ toc: true
 ---
 
 ```{r include = FALSE}
+
 knitr::opts_chunk$set(message = FALSE, 
                       warning = FALSE)
 ```
 
-# Data Cleaning with R and SQL
+# Overview
 
-In the spirit of thriftiness, I hypothesize that data analysis could be made more accessible to individuals and businesses. At first, it would seem that data analysis would be an expensive endeavor but as I learn and think about it more, I am not sure why that has to be the case. Either way, this project is meant as an exercise in professional data analysis where time and money saved makes a difference.
+This project was built from the ground up. I wanted to reach a broad audience with what I consider as a major data analysis project. I wanted to redo the Google Data Analytics capstone project to better my chances of reaching a larger audience. Also, the dataset is immense with millions of observations from just a single year. It seems to be regularly updated with more data, interestingly enough, despite being simulated.
 
-I think .ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs and then extracts the files of interest to a separate folder.
+I finished the course years ago and did some minimal analysis to meet the course requirements, but didn't do as much as I wanted. I reused some of the course materials as helpful, general purpose reminders. The dataset doesn't require too much domain knowledge to understand but is realistic (with errors) and challenging enough to be worthy of processing and analysis.
+
+## Importing Data Efficiently
+
+I think .ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs which then extracts the files of interest to a separate folder.
 
 ```{r}
-# Efficiently create a list of download addresses. 
+
+# Efficiently creates a list of download addresses. 
 durls <-
     sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
             202301:202312)
@@ -52,13 +58,19 @@ dir.create("tripdata")
 dir.create("pq_tripdata")
 ```
 
+### File Downloads
+
 ```{r}
+
 # Need to download several compressed files from URLs to the directory destination and filepaths (zipPaths) previously created.
 curl::multi_download (durls,
                       destfiles = zipPaths)
 ```
 
+### Extracting .CSV from .ZIP
+
 ```{r}
+
 # A custom function that makes unzipping and moving files easy and fun.
 unz_csv <- function (x = filePaths,
                      y = zipPaths,
@@ -75,6 +87,7 @@ unz_csv <- function (x = filePaths,
 ```
 
 ```{r}
+
 # Wanted to verify where the extracted data is at. 
 csvFileList <- list.files(path = "tripdata",
                           full.names = TRUE)
@@ -85,35 +98,33 @@ matrix(csvFileList,
 ```
 
 ```{r}
-# With list_rbind(), map can be used to directly create a dataframe from a list of files
-oneTibble <- purrr::map (csvFileList[1:12], read_csv) |>
+
+# With list_rbind(), map can be used to create a dataframe from a list of files
+oneTibble <- purrr::map(csvFileList[1:12], 
+                        read_csv) |>
     purrr::list_rbind ()
 ```
 
 ```{r}
-oneDT <- do.call(rbind,
-                 lapply(csvFileList,
-                        data.table::fread))
+
+oneTibble[1,]
 ```
 
 ```{r}
-oneDT[1,]
-```
 
-```{r}
-origObserves <- length(oneDT[[1]])
-
-print(originalLength)
+length(oneTibble[[1]])
 ```
 
 We started with 5,719,877 observations for the time period of Jan-Dec 2023, then drop_na() removed 1,388,170 of those observations.
 
 ```{r}
+
 # Pretty straightforward way to remove incomplete observations.
-oneDT <- tidyr::drop_na(oneDT)
+oneTibble <- tidyr::drop_na(oneDT)
 ```
 
 ```{r}
+
 # Keeping track of observations/rows dropped.
 tibble::tibble(
     Complete_Observations = length(oneTibble [[1]]),
@@ -122,6 +133,7 @@ tibble::tibble(
 ```
 
 ```{r}
+
 # Maybe only need to check ride_id column? I wish.
 dplyr::distinct(oneTibble, dplyr::pick ("ride_id")) |>
     dplyr::count(name = "Distinct Ride ID's")
@@ -129,27 +141,30 @@ dplyr::distinct(oneTibble, dplyr::pick ("ride_id")) |>
 
 Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
 
-Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once. One big limitation of this analysis is that it's based on a simulated dataset. I wanted to reach a broad audience and I know the Google Data Analytics course community would be able to relate, at the very least. I used the course materials as inspiration, mainly for bootstrapping myself and for organizational purposes.
+Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once.
 
-For the sake of this exercise I have assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. Another option would be to assume one person could check out multiple cycles at once. But it has only happened 18 times over the course of a full year. I would think that would happen more often because people probably ride in groups often. Scenarios where one person pays and gets Venmo'd later by their friends, come to mind. In the real world, we would want to be absolutely sure, but for this exercise, it is reasonable to assume these are errors.
+I have assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. Another option would be to assume one person could check out multiple cycles at once. But it has only happened 18 times over the course of a full year. I would think that would happen more often because people probably ride in groups often. A scenario where one person pays and gets "*Venmo'd*" later by their friends comes to mind.
 
 ```{r}
-# This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column (n) so didn't want to mess with the main dataframe for this.
+
+# This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n" because I didn't want to add more complexity to the main dataframe.
 dupTibble <- oneTibble |>
     dplyr::select(started_at:end_station_name) |>
-    # adds a count of rows for column 'n'
+    # Counts of rows for column 'n'
     dplyr::add_count(started_at,
                      ended_at,
                      start_station_name,
                      end_station_name) |>
-    # so that only observations that have been duplicated 1 or more                   times are shown
+    # Only observations that have been duplicated 1 or more 
+    # times are shown
     dplyr::filter(n > 1) |>
-    # because we want to see all the rows, not just one row for each obs
+    # We want to see all rows, not just one row for each obs
     dplyr::ungroup() |>
     dplyr::arrange(started_at)
 ```
 
 ```{r}
+
 print(dupTibble)
 
 paste0("Number of observations with duplicates: ",
@@ -161,6 +176,7 @@ dplyr::distinct(dupTibble["n"])
 By applying distinct() on dupTibble, we see the only distinct value is 2. We can safely conclude that of the duplicates each duplicated observation has only 1 extra copy.
 
 ```{r}
+
 # verify how many rows have/are duplicates
 nrow(dupTibble)
 ```
@@ -168,6 +184,7 @@ nrow(dupTibble)
 Number of rows in the dupTibble is 36. Because each duplicated observation has one duplicate (n = 2), expected removed nobs is 18.
 
 ```{r}
+
 # The issue is, we need to get rid of not all of these rows, but just the extra duplicate observations. 
 
 # If there were 2 rows of duplicates, we would want to end up with 1 row after removing the extras.
@@ -180,16 +197,19 @@ undupdTibble <- dupTibble |>
 ```
 
 ```{r}
+
 print(undupdTibble)
 ```
 
 ```{r}
+
 nrow(undupdTibble)
 ```
 
 Our predicted value for observations in the undupdTibble was indeed 18.
 
 ```{r}
+
 incorrectDistinct <-
     dplyr::distinct(oneTibble, dplyr::pick("ride_id")) |>
     dplyr::count(name = "Incorrect Distinct Observations")
@@ -198,6 +218,7 @@ incorrectDistinct
 ```
 
 ```{r}
+
 correctDistinct <-
     dplyr::distinct(
         oneTibble,
@@ -214,6 +235,7 @@ correctDistinct
 ```
 
 ```{r}
+
 correctionTibble <-
     tibble::tibble(
         Uncorrected = uncorrectDistinct[[1]],
@@ -227,6 +249,7 @@ correctionTibble
 Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The corrected nobs after removing one copy of the duplicates since all of them had only one duplicate, resulted in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 additional observations were removed.
 
 ```{r}
+
 oneTibble <- oneTibble |>
     dplyr::distinct(started_at, 
                     start_station_name, 
@@ -236,10 +259,12 @@ oneTibble <- oneTibble |>
 ```
 
 ```{r}
+
 nrow(oneTibble)
 ```
 
 ```{r}
+
 # sorting the entire table by the start_at column
 oneTibble <- oneTibble |>
     dplyr::arrange(started_at)
@@ -294,6 +319,7 @@ onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
 We test the performance of a query to a one .CSV file dataset.
 
 ```{r}
+
 onecsvset |>
     dplyr::filter(rideable_type == "classic_bike") |>
     group_by(month) |>
@@ -304,6 +330,7 @@ onecsvset |>
 Testing the performance of a query to a "partitioned" .CSV file dataset.
 
 ```{r}
+
 csvset |>
     dplyr::filter(rideable_type == "classic_bike") |>
     group_by(month) |>
@@ -314,6 +341,7 @@ csvset |>
 Testing the performance of a query to a partitioned .Parquet file dataset.
 
 ```{r}
+
 dataquet |>
     dplyr::filter(rideable_type == "classic_bike") |>
     group_by(month) |>
@@ -322,10 +350,11 @@ dataquet |>
 ```
 
 ```{r}
-# Need to open a tibble again to do some more testing. Opening from .Parquet file made previously. 
+
+# Need do some more testing. Opening from .Parquet file made previously. 
 twoTibble <- arrow::read_parquet("oneQuet", as_data_frame = TRUE)
 
-# Having file backups of data comes in handy. 
+# Having file backups of pre-processed data comes in handy. 
 oneTibble <- readr::read_csv("oneCSVfile")
 
 twoTibble["end_station_id"] |>
@@ -381,6 +410,7 @@ twoTibble["end_station_id"] |>
 You can read in the above link why I would choose to use DuckDB and OLAP for this project.
 
 ```{r}
+
 # Open .Parquet file dataset connection pointer
 dataquet <- arrow::open_dataset(sources = "parquets",
                                 format = "parquet")
@@ -391,8 +421,6 @@ duckCon <- DBI::dbConnect(duckdb::duckdb())
 duckdb::duckdb_register_arrow(duckCon,
                               "duckbase",
                               dataquet)
-
-
 ```
 
 ```{r}
@@ -405,6 +433,7 @@ dplyr::tbl(duckCon, "duckbase") |>
 ## SQL Queries
 
 ```{r}
+
 sql_countRiders <- paste0(
     "SELECT COUNT(*) AS 'Distinct Riders' ",
     "FROM (",
@@ -423,6 +452,7 @@ duckdb::dbClearResult(qres_countRiders)
 ```
 
 ```{r}
+
 # Makes formatting simpler for SQL syntax
 sql_selectHead <- paste0("SELECT(*) ",
                          "FROM duckbase ",
@@ -438,6 +468,7 @@ duckdb::dbClearResult(qres_selectHead)
 ```
 
 ```{r}
+
 rCounts_types <- dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(rideable_type) |>
     dplyr::summarize(rideTypecount = count(), .groups = "keep")
@@ -459,6 +490,7 @@ fres_rideTypeCounts <- duckdb::dbFetch(qres_ridetypeCounts)
 ```
 
 ```{r}
+
 fres_rideTypeCounts
 dplyr::glimpse(fres_rideTypeCounts)
 
@@ -472,6 +504,7 @@ newPlot
 ```
 
 ```{r}
+
 dplyr::tbl(duckCon, "duckbase") |>
     dplyr::group_by(start_station_id) |>
     dplyr::summarize(StationCount = count()) |>
@@ -481,6 +514,7 @@ dplyr::tbl(duckCon, "duckbase") |>
 With DuckDB, approx 0.11s to return query results.
 
 ```{r}
+
 dataquet |>
     dplyr::collect() |>
     dplyr::distinct(ride_id) |>
@@ -678,7 +712,7 @@ rAvg_riders <-
     dplyr::group_by(MonthNum = lubridate::month(
         lubridate::as_datetime(started_at))) |>
     dplyr::summarize(RidesPerMonth = count()) |>
-    dplyr::summarize(mean(RidesPerMonth))
+    dplyr::summarize(AvgRiders = mean(RidesPerMonth))
 
 rAvg_casuals <-
     dplyr::tbl(duckCon,
@@ -690,11 +724,11 @@ rAvg_casuals <-
     dplyr::summarize(Casuals = count()) |>
     dplyr::summarize(AvgCasuals = mean(Casuals))
 
-rCounts_types <- dplyr::tbl(duckCon,
-                            "duckbase") |>
-    dplyr::group_by(rideable_type) |>
-    dplyr::summarize(rideTypecount = count(),
-                     .groups = "keep")
+
+rCounts_types
+
+rAvg_riders
+rAvg_casuals
 ```
 
 ##### Counts_By_Month
@@ -736,7 +770,7 @@ dplyr::tbl(duckCon,
     dplyr::summarize(Casuals = count(member_casual)) |>
     as.data.frame() |>
     duckdb::dbWriteTable(conn = duckCon,
-                         name = "Counts_By_Month::Casual Riders")
+                         name = "Counts_By_Month_Casuals")
 ```
 
 ```{r}
@@ -753,10 +787,10 @@ dplyr::tbl(duckCon,
     dplyr::group_by(MonthNum = lubridate::month(
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "member") |>
-    dplyr::summarize(Members = count(member_casual)) |>
+    dplyr::summarize(Annuals = count(member_casual)) |>
     as.data.frame() |>
     duckdb::dbWriteTable(conn = duckCon,
-                         name = "Counts_By_Month::Annual Members")
+                         name = "Counts_By_Month_Annuals")
 ```
 
 ```{r}
@@ -782,10 +816,10 @@ dplyr::tbl(duckCon,
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "casual",
                   rideable_type == "electric_bike") |>
-    dplyr::summarize(CasualsOnElectric = count(member_casual)) |>
+    dplyr::summarize(Casual_eBikers = count(member_casual)) |>
     as.data.frame() |>
     duckdb::dbWriteTable(conn = duckCon,
-                         name = "Counts_By_Month::Casual eBikers")
+                         name = "Counts_By_Month_Casual_eBikers")
 ```
 
 ```{r}
@@ -806,11 +840,10 @@ dplyr::tbl(duckCon,
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "member",
                   rideable_type == "electric_bike") |>
-    dplyr::summarize(MembersOnElectric = count(member_casual)) |>
+    dplyr::summarize(Annual_eBikers = count(member_casual)) |>
     as.data.frame() |>
     duckdb::dbWriteTable(conn = duckCon,
-                         name = "Counts_By_Month::Annual Member eBikers")
-
+                         name = "Counts_By_Month_Annual_eBikers")
 ```
 
 ```{r}
@@ -831,11 +864,11 @@ dplyr::tbl(duckCon,
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "member",
                   rideable_type == "classic_bike") |>
-    dplyr::summarize(Classic_Annuals = count(member_casual)) |>
+    dplyr::summarize(Annual_classicBikers = count(member_casual)) |>
     as.data.frame() |>
     duckdb::dbWriteTable(conn = duckCon,
                          name = 
-                             "Counts_By_Month::Annual Members::Classic Bikers")
+                             "Counts_By_Month_Annual_classicBikers")
 ```
 
 ```{r}
@@ -857,11 +890,11 @@ dplyr::tbl(duckCon,
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "casual",
                   rideable_type == "classic_bike") |>
-    dplyr::summarize(Classic_Casuals = count(member_casual)) |>
+    dplyr::summarize(casual_classicBikers = count(member_casual)) |>
     as.data.frame() |>
     duckdb::dbWriteTable(conn = duckCon,
                          name = 
-                             "Counts_By_Month::Casuals::Classic Bikers")
+                             "Counts_By_Month_Casual_classicBikers")
 ```
 
 ```{r}
@@ -880,16 +913,25 @@ duckdb::dbListTables(duckCon)
 dplyr::tbl(duckCon,
            "Counts_By_Month") |>
     dplyr::left_join(y = dplyr::tbl(duckCon,
-                                    "Counts_By_Month::Casual Riders")) |>
+                                    "Counts_By_Month_Casuals")) |>
     dplyr::left_join(y = dplyr::tbl(duckCon,
-                                    "Counts_By_Month::Annual Members")) |>
+                                    "Counts_By_Month_Annuals")) |>
     dplyr::left_join(y = dplyr::tbl(duckCon,
-                                    "Counts_By_Month::Casual eBikers")) |>
+                                    "Counts_By_Month_Casual_eBikers")) |>
     dplyr::left_join(y = dplyr::tbl(duckCon,
-                                    "Counts_By_Month::Annual Members eBikers")) |>
+                                    "Counts_By_Month_Annual_eBikers")) |>
     dplyr::left_join(y = dplyr::tbl(duckCon,
-                                    "Counts_By_Month::Casuals::Classic Bikers")) |>
+                                    "Counts_By_Month_Casual_classicBikers"))  |>
     dplyr::left_join(y = dplyr::tbl(duckCon,
-                                    "Counts_By_Month::Annual Members::Classic Bikers"))
-    
+                                    "Counts_By_Month_Annual_classicBikers"))
+```
+
+```{r}
+
+
+dplyr::tbl(duckCon,
+           "duckbase") |>
+    dplyr::group_by(rideable_type) |>
+    dplyr::summarize(rideTypecount = count(),
+                     .groups = "keep")
 ```
