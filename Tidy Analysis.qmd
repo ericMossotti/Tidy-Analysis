@@ -1,5 +1,5 @@
 ---
-title: "Tidy Analysis"
+title: "Professional Data Analysis"
 author: "Eric Mossotti"
 
 code-fold: true
@@ -99,10 +99,39 @@ matrix(csvFileList,
 
 ```{r}
 
+# Establish a new connection to a virtual in memory DuckDB database
+dukonn <- DBI::dbConnect(duckdb::duckdb())
+
+# Register the dataset connection object to a location in the DDB
+duckdb::duckdb_register_arrow(duckCon,
+                              "duckbase",
+                              dataquet)
+
+# Saves memory by avoiding loading all of the data into memory as a dataframe? Dataset that points towards a CSV file system (can it be considered "partitioned"?)
+
+# Make dataset more memory efficient dataset for analysis.
+arrow::open_dataset(sources = "tripdata",
+                               format = "csv") |>
+    dplyr::group_by(Month = lubridate::month(started_at)) |>
+    arrow::write_dataset(path = "tripdata-pqfs",
+                         format = "parquet")
+
+tripset <- arrow::open_dataset(sources = "tripdata-pqfs",
+                               format = "parquet")
+
+dbconn <- DBI::dbConnect(duckdb::duckdb())
+
+duckdb::duckdb_register_arrow(dbconn,
+                              "tripdb",
+                              tripset)
+```
+
+```{r}
+
 # With list_rbind(), map can be used to create a dataframe from a list of files
-oneTibble <- purrr::map(csvFileList[1:12], 
-                        read_csv) |>
-    purrr::list_rbind ()
+#oneTibble <- purrr::map(csvFileList[1:12], 
+ #                       read_csv) |>
+#   purrr::list_rbind ()
 ```
 
 ```{r}
@@ -120,7 +149,7 @@ We started with 5,719,877 observations for the time period of Jan-Dec 2023, then
 ```{r}
 
 # Pretty straightforward way to remove incomplete observations.
-oneTibble <- tidyr::drop_na(oneDT)
+oneTibble <- tidyr::drop_na(oneTibble)
 ```
 
 ```{r}
@@ -280,7 +309,7 @@ The multi-file partitioning of the dataset should result in faster queries in ce
 
 [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
-### Comparing Parquet and .CSV Performance
+### Comparing .Parquet and .CSV Performance
 
 ```{r}
 
