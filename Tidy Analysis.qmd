@@ -28,7 +28,7 @@ I think .ZIP files would be commonplace as they substantially reduce long term s
 
 ```{r}
 
-# Efficiently creates a list of download addresses. 
+# Create lists of download / zips / file addresses. 
 durls <-
     sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
             202301:202312)
@@ -36,29 +36,21 @@ durls <-
 zipPaths <- sprintf("tripZips/%d-divvy-tripdata.zip",
                      202301:202312)
 
-# Define file paths for .CSVs. 
-filePaths <- sprintf("tripdata/%d-divvy-tripdata.csv",
-                      202301:202312)
-
-# Define filenames for the .ZIP files. 
-zipNames <- sprintf("%d-divvy-tripdata.zip",
-                     202301:202312)
-
-# Define filenames for .CSV's
 fileNames <- sprintf("%d-divvy-tripdata.csv",
                       202301:202312)
 
 pqFilePaths <- sprintf("tripdata/%d-divvy-tripdata.parquet",
                       202301:202312)
-
-pq_path <- "pq_tripdata"
-
-# I need some directories to store the files. 
+    
+# Need some directories to store the files. 
 dir.create("tripZips")
 
 dir.create("tripdata")
 
-dir.create("pq_tripdata")
+tibble::tibble("URLs" = durls,
+               "Zip File Paths" = zipPaths,
+               "File Names" = fileNames,
+               "Parquet File Paths" = pqFilePaths)
 ```
 
 ### File Downloads
@@ -72,9 +64,11 @@ curl::multi_download (durls,
 
 ### Unzip, Convert and Relocate
 
+I wanted to reduce resource requirements by converting the .CSV files to .Parquet so that there are no unneeded copies of info. The only original copies of data I want to keep in this project will be compressed files in the ZIP folder.
+
 ```{r}
 
-# A custom function that makes unzipping, converting, and relocating files all at once easy and fun. Wanted to save space by converting the CSVs within to Parquet before relocating to project folder's on disk memory. 
+# A custom function that makes unzipping, converting, and relocating files all at once easy and fun! 
 unz_csv2pq <- function (x = pqFilePaths,
                         y = zipPaths,
                         z = fileNames) {
@@ -90,15 +84,15 @@ unz_csv2pq <- function (x = pqFilePaths,
 ```{r}
 
 # Wanted to verify where the extracted data is at. 
-csvFileList <- list.files(path = "tripdata",
+parquetFileList <- list.files(path = "tripdata",
                           full.names = TRUE)
 
-matrix(csvFileList,
-       dimnames = list(seq(csvFileList),
-                       c("csvfiles")))
+matrix(parquetFileList,
+       dimnames = list(seq(parquetFileList),
+                       c("Parquets")))
 ```
 
-## .CSV -\> .Parquet -\> DuckDB
+## Arrow, Parquet and DuckDB
 
 ```{r}
 
@@ -114,7 +108,7 @@ tripset <- arrow::open_dataset(sources = "tripdata-pqfs",
 
 dbconn <- DBI::dbConnect(duckdb::duckdb())
 
-# Register the dataset connection object to a location in the DDB
+# For querying the arrow dataset with the benefits of an OLAP database. 
 duckdb::duckdb_register_arrow(dbconn,
                               "tripdb",
                               tripset)
