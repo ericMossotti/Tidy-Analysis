@@ -48,6 +48,9 @@ zipNames <- sprintf("%d-divvy-tripdata.zip",
 fileNames <- sprintf("%d-divvy-tripdata.csv",
                       202301:202312)
 
+pqFilePaths <- sprintf("tripdata/%d-divvy-tripdata.parquet",
+                      202301:202312)
+
 pq_path <- "pq_tripdata"
 
 # I need some directories to store the files. 
@@ -67,19 +70,17 @@ curl::multi_download (durls,
                       destfiles = zipPaths)
 ```
 
-### Extracting .CSV from .ZIP
+### Unzip, Convert and Relocate
 
 ```{r}
 
-# A custom function that makes unzipping and moving files easy and fun.
-unz_csv <- function (x = filePaths,
-                     y = zipPaths,
-                     z = fileNames) {
-    
+# A custom function that makes unzipping, converting, and relocating files all at once easy and fun. Wanted to save space by converting the CSVs within to Parquet before relocating to project folder's on disk memory. 
+unz_csv2pq <- function (x = pqFilePaths,
+                        y = zipPaths,
+                        z = fileNames) {
     for (i in seq(x)) {
         utils::unzip (y[i],
                       z[i])
-        
         file.rename (z[i],
                      x[i])
     }
@@ -97,19 +98,11 @@ matrix(csvFileList,
                        c("csvfiles")))
 ```
 
+## .CSV -\> .Parquet -\> DuckDB
+
 ```{r}
 
-# Establish a new connection to a virtual in memory DuckDB database
-dukonn <- DBI::dbConnect(duckdb::duckdb())
-
-# Register the dataset connection object to a location in the DDB
-duckdb::duckdb_register_arrow(duckCon,
-                              "duckbase",
-                              dataquet)
-
-# Saves memory by avoiding loading all of the data into memory as a dataframe? Dataset that points towards a CSV file system (can it be considered "partitioned"?)
-
-# Make dataset more memory efficient dataset for analysis.
+# Make a more memory efficient dataset for analysis.
 arrow::open_dataset(sources = "tripdata",
                                format = "csv") |>
     dplyr::group_by(Month = lubridate::month(started_at)) |>
@@ -121,6 +114,7 @@ tripset <- arrow::open_dataset(sources = "tripdata-pqfs",
 
 dbconn <- DBI::dbConnect(duckdb::duckdb())
 
+# Register the dataset connection object to a location in the DDB
 duckdb::duckdb_register_arrow(dbconn,
                               "tripdb",
                               tripset)
