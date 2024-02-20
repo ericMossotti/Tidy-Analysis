@@ -28,60 +28,88 @@ I think .ZIP files would be commonplace as they substantially reduce long term s
 
 ```{r}
 
-# Create lists of download / zips / file addresses. 
+# Lists of download / zips / file addresses. 
+
 durls <-
     sprintf("https://divvy-tripdata.s3.amazonaws.com/%d-divvy-tripdata.zip",
             202301:202312)
 
-zipPaths <- sprintf("tripZips/%d-divvy-tripdata.zip",
+tempZipPaths <- sprintf("tempZips/%d-divvy-tripdata.zip",
                      202301:202312)
 
 fileNames <- sprintf("%d-divvy-tripdata.csv",
                       202301:202312)
 
-pqFilePaths <- sprintf("tripdata/%d-divvy-tripdata.parquet",
+tempfile_paths <- sprintf("tempFiles/%d-divvy-tripdata.parquet",
                       202301:202312)
+
     
 # Need some directories to store the files. 
-dir.create("tripZips")
+dir.create("tempZips")
 
 dir.create("tripdata")
 
+dir.create("tempFiles")
+
+# review address info that was just created
 tibble::tibble("URLs" = durls,
-               "Zip File Paths" = zipPaths,
+               "Zip File Paths" = tempZipPaths,
                "File Names" = fileNames,
-               "Parquet File Paths" = pqFilePaths)
+               "Parquet File Paths" = tempfile_paths)
+
 ```
 
 ### File Downloads
 
 ```{r}
 
-# Need to download several compressed files from URLs to the directory destination and filepaths (zipPaths) previously created.
 curl::multi_download (durls,
-                      destfiles = zipPaths)
+                      destfiles = tempZipPaths)
 ```
 
 ### Unzip, Convert and Relocate
 
-I wanted to reduce resource requirements by converting the .CSV files to .Parquet so that there are no unneeded copies of info. The only original copies of data I want to keep in this project will be compressed files in the ZIP folder.
+I wanted to reduce resource requirements by converting the .CSV files to .Parquet so that there are no unneeded local copies of data.
 
 ```{r}
 
-# A custom function that makes unzipping, converting, and relocating files all at once easy and fun! 
-unz_csv2pq <- function (x = pqFilePaths,
-                        y = zipPaths,
-                        z = fileNames) {
+# A custom function that makes unzipping, converting and relocating files all at once easy and fun! 
+unz_to_parquets <- function (x = tempfile_paths,
+                             y = tempZipPaths,
+                             z = fileNames) {
+    
     for (i in seq(x)) {
-        utils::unzip (y[i],
-                      z[i])
-        file.rename (z[i],
-                     x[i])
+        
+        data <- arrow::read_csv_arrow(
+            unz(y[i],
+                z[i]))
+        
+        arrow::write_parquet(data,
+                             sink = x[i])
     }
 }
-```
 
-```{r}
+unz_to_parquets()
+
+unlink("tempZips",
+       recursive = TRUE)
+
+ 
+tripset <- arrow::open_dataset("tempFiles")
+    
+    # Create partitioned dataset.
+tripset <- tripset |>
+    dplyr::group_by(month = lubridate::month(started_at))
+
+    # Write a partitioned backup filesystem so we don't have to do any of the     # above steps again moving forward. 
+tripset |>
+    arrow::write_dataset(path = "tripdata",
+                         format = "parquet")
+
+    unlink(c(tempFiles,tempZips),
+           recursive = TRUE)
+tripset <- arrow::open_dataset(sources = "tripdata",
+                              format = "parquet")
 
 # Wanted to verify where the extracted data is at. 
 parquetFileList <- list.files(path = "tripdata",
@@ -95,22 +123,28 @@ matrix(parquetFileList,
 ## Arrow, Parquet and DuckDB
 
 ```{r}
-
-# Make a more memory efficient dataset for analysis.
-arrow::open_dataset(sources = "tripdata",
-                               format = "csv") |>
-    dplyr::group_by(Month = lubridate::month(started_at)) |>
-    arrow::write_dataset(path = "tripdata-pqfs",
-                         format = "parquet")
-
-tripset <- arrow::open_dataset(sources = "tripdata-pqfs",
+tripset <- arrow::open_dataset(sources = "tripdata",
                                format = "parquet")
+
+tripset
+```
+
+```{r}
+
+tripset |>
+    dplyr::select("ride_id",
+                  "started_at",
+                  ) |>
+    dplyr::collect()
+```
+
+```{r}
 
 dbconn <- DBI::dbConnect(duckdb::duckdb())
 
 # For querying the arrow dataset with the benefits of an OLAP database. 
 duckdb::duckdb_register_arrow(dbconn,
-                              "tripdb",
+                              "trip_data",
                               tripset)
 ```
 
@@ -124,21 +158,62 @@ duckdb::duckdb_register_arrow(dbconn,
 
 ```{r}
 
-oneTibble[1,]
+dplyr::tbl(dbconn,
+           "trip_data") |>
+    as.data.frame() |>
+    na.omit() |>
+    summary()
+
+
 ```
 
 ```{r}
 
-length(oneTibble[[1]])
+dplyr::tbl(dbconn,
+           "tripdb") |>
+    as.data.frame() |>
+    duckdb::dbWriteTable(conn = dbconn,
+                         name = "trip_tbl")
+
+dplyr::tbl(dbconn,
+         "trip_tbl2") |>
+    dplyr::select("ride_id") |>
+    dplyr::count(name = "Total Observations Originally")
+
+dplyr::tbl(duckCon,
+           "duckbase") |>
+    dplyr::select(started_at, member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "member") |>
+    dplyr::summarize(Annuals = count(member_casual)) |>
+    as.data.frame() |>
+    duckdb::dbWriteTable(conn = duckCon,
+                         name = "Counts_By_Month_Annuals")
+```
+
+```{r}
+
+?dplyr::drop_na()
+
+sql_countObs <- paste0(
+    "SELECT * IS.NA ",
+    "FROM (",
+    "SELECT DISTINCT ride_id ",
+    "FROM duckbase)"
+)
+
+qres_countRiders <- duckdb::dbSendQuery(conn = duckCon,
+                                        statement = sql_countRiders)
+
+fetch_countRiders <- duckdb::dbFetch(qres_countRiders)
+
+fetch_countRiders
+
+duckdb::dbClearResult(qres_countRiders)
 ```
 
 We started with 5,719,877 observations for the time period of Jan-Dec 2023, then drop_na() removed 1,388,170 of those observations.
-
-```{r}
-
-# Pretty straightforward way to remove incomplete observations.
-oneTibble <- tidyr::drop_na(oneTibble)
-```
 
 ```{r}
 
@@ -158,13 +233,15 @@ dplyr::distinct(oneTibble, dplyr::pick ("ride_id")) |>
 
 Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
 
-Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are hidden duplicated observations. There is no mention that more than one bike can be checked out at once.
+Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are possibly hidden duplicated observations. There is no mention that more than one bike can be checked out at once in the project description.
 
-I have assumed that due the logistics of having the exact same times/dates and stations for two different riders is impossible. Another option would be to assume one person could check out multiple cycles at once. But it has only happened 18 times over the course of a full year. I would think that would happen more often because people probably ride in groups often. A scenario where one person pays and gets "*Venmo'd*" later by their friends comes to mind.
+I assumed that having the exact same times/dates and stations for two different ride IDs is a mistake. Although, I do not know how that error would happen.
+
+I could have assumed one person could check out multiple cycles at once. That, however, has only happened 18 times over the course of a full year. One would suppose that would happen in groups more often than 1-2 times a month, on average. A scenario where one person pays and gets "*Venmo'd*" later by their friends comes to mind.
 
 ```{r}
 
-# This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n" because I didn't want to add more complexity to the main dataframe.
+# This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n".
 dupTibble <- oneTibble |>
     dplyr::select(started_at:end_station_name) |>
     # Counts of rows for column 'n'
@@ -190,7 +267,7 @@ paste0("Number of observations with duplicates: ",
 dplyr::distinct(dupTibble["n"])
 ```
 
-By applying distinct() on dupTibble, we see the only distinct value is 2. We can safely conclude that of the duplicates each duplicated observation has only 1 extra copy.
+By applying distinct() on dupTibble, we see the only distinct value is 2. We can safely conclude that, of the duplicates, each has a mininum and maximum of 1 extra copy.
 
 ```{r}
 
@@ -544,6 +621,12 @@ Running SQL syntax to the DDB has the same results as dplyr package syntax. Thes
 
 ```{sql, connection = duckCon, output.var = "Distinct"}
 
+
+DELETE FROM table_name 
+
+WHERE ANY value ;
+
+
 SELECT COUNT 
     (DISTINCT ride_id) AS "Distinct Obs"
 FROM
@@ -578,6 +661,14 @@ FROM (
 ```
 
 ```{sql, connection = duckCon, output.var = "sql_counts_month_rides"}
+
+SELECT month, COUNT(member_casual) AS Rider_count
+FROM duckbase
+GROUP BY month
+ORDER BY month
+```
+
+```{sql, connection = dbconn, output.var = "sql_counts_month_rides"}
 
 SELECT month, COUNT(member_casual) AS Rider_count
 FROM duckbase
