@@ -138,8 +138,7 @@ FROM
 Counting the original Observations
 
 ```{r}
-
-countRows
+cat("Row count of total observations before any cleaning:", countRows[[1]])
 ```
 
 ```{r}
@@ -157,7 +156,13 @@ temp_df <- temp_df |>
                   end_station_id = dplyr::na_if(end_station_id, "")) |>
     tidyr::drop_na()
 
-length(temp_df$ride_id)
+
+```
+
+```{r}
+
+cat("Row count after dropping incomplete observations: ", 
+    length(temp_df$ride_id))
 ```
 
 ```{r}
@@ -185,12 +190,6 @@ dbWriteTable(
 )
 
 
-
-duckdb::dbListTables(dbconn)
-duckdb::dbRemoveTable(dbconn, "cleanTripdata")
-#    duckdb::dbWriteTable(conn = dbconn,
-#                         name = "cleanTripdata")
-
 dplyr::tbl(dbconn,
            "cleanTripdata") |>
     dplyr::select(ride_id) |>
@@ -207,13 +206,6 @@ dplyr::tbl(dbconn,
 
 ```{r}
 
-
-duckdb::dbListTables(dbconn)
-
-dplyr::tbl(dbconn,
-         "trip_tbl2") |>
-    dplyr::select("ride_id") |>
-    dplyr::count(name = "Total Observations Originally")
 
 dplyr::tbl(duckCon,
            "duckbase") |>
@@ -290,7 +282,9 @@ I could have assumed one person could check out multiple cycles at once. That, h
 ```{r}
 
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n".
-dupTibble <- oneTibble |>
+temp_dupeTable <- temp_df |>
+    arrow::as_arrow_table() |>
+    arrow::to_duckdb() |>
     dplyr::select(started_at:end_station_name) |>
     # Counts of rows for column 'n'
     dplyr::add_count(started_at,
@@ -302,53 +296,71 @@ dupTibble <- oneTibble |>
     dplyr::filter(n > 1) |>
     # We want to see all rows, not just one row for each obs
     dplyr::ungroup() |>
-    dplyr::arrange(started_at)
+    dplyr::arrange(started_at) |>
+    arrow::to_arrow() |>
+    dplyr::collect()
+
+duckdb::dbWriteTable(dbconn,
+                     "dupeTable",
+                     temp_dupeTable)
+
+rm(temp_dupeTable)
+
+dupeTable <- dplyr::tbl(dbconn,
+           "dupeTable") |>
+    dplyr::collect()
+
+dupeTable
 ```
 
 ```{r}
 
-print(dupTibble)
-
-paste0("Number of observations with duplicates: ",
-       length(dupTibble[[1]]))
-
-dplyr::distinct(dupTibble["n"])
+cat("Total observations that have and are duplicates: ",
+       length(dupeTable[[1]]))
 ```
-
-By applying distinct() on dupTibble, we see the only distinct value is 2. We can safely conclude that, of the duplicates, each has a mininum and maximum of 1 extra copy.
 
 ```{r}
 
-# verify how many rows have/are duplicates
-nrow(dupTibble)
+distinct_n <- dplyr::tbl(dbconn,
+                         "dupeTable") |>
+    dplyr::distinct(n) |>
+    as.data.frame()
+
+cat("All distinct values of duplicates, n =", distinct_n[[1]])
 ```
 
-Number of rows in the dupTibble is 36. Because each duplicated observation has one duplicate (n = 2), expected removed nobs is 18.
+By applying distinct() on dupeTable, we see the only distinct value is 2. We can safely conclude that, of the duplicates, each has a mininum and maximum of 1 extra copy.
+
+Number of rows in the dupeTable is 36. Because each duplicated observation has one duplicate (n = 2), expected removed nobs is 18.
 
 ```{r}
 
 # The issue is, we need to get rid of not all of these rows, but just the extra duplicate observations. 
 
 # If there were 2 rows of duplicates, we would want to end up with 1 row after removing the extras.
-undupdTibble <- dupTibble |>
+undupedTable <- dupeTable |>
+    arrow::as_arrow_table() |>
+    arrow::to_duckdb() |>
     dplyr::distinct(started_at,
                      start_station_name,
                      ended_at,
                      end_station_name,
-                     .keep_all = TRUE)
+                     .keep_all = TRUE) |>
+    arrow::to_arrow() |>
+    dplyr::collect()
+
+duckdb::dbWriteTable(dbconn,
+                     "undupedTable",
+                     undupedTable)
+
+undupedTable <- dplyr::tbl(dbconn,
+                           "undupedTable") |>
+    dplyr::collect()
+
+undupedTable
 ```
 
-```{r}
-
-print(undupdTibble)
-```
-
-```{r}
-
-nrow(undupdTibble)
-```
-
-Our predicted value for observations in the undupdTibble was indeed 18.
+Our predicted value for observations in the undupedTable was indeed 18.
 
 ```{r}
 
