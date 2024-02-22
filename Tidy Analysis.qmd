@@ -71,9 +71,11 @@ curl::multi_download (durls,
 
 I wanted to reduce resource requirements by converting the .CSV files to .Parquet so that there are no unneeded local copies of data.
 
+[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
+
 ```{r}
 
-# A custom function that makes unzipping, converting and relocating files all at once easy and fun! 
+# A custom function that makes unzipping, converting and relocating files all at once, simple. 
 unz_to_parquets <- function (x = tempfile_paths,
                              y = tempZipPaths,
                              z = fileNames) {
@@ -110,12 +112,13 @@ tripset <- arrow::open_dataset(sources = "tripdata",
 
 # Wanted to verify where the extracted data is at. 
 parquetFileList <- list.files(path = "tripdata",
-                          full.names = FALSE)
+                              full.names = TRUE,
+                              recursive = TRUE)
 
 parquetFileList
 ```
 
-## Arrow, Parquet and DuckDB
+[Why DuckDB?](https://duckdb.org/why_duckdb)
 
 ```{r}
 
@@ -138,155 +141,60 @@ FROM
 Counting the original Observations
 
 ```{r}
-cat("Row count of total observations before any cleaning:", countRows[[1]])
+orig_rowCount <- countRows[[1]]
+cat("Row count of total observations before any cleaning:", orig_rowCount[[1]])
 ```
 
 ```{r}
 
-temp_df <- dplyr::tbl(dbconn,
-           "trip_data") |>
-    as.data.frame()
-
-temp_df <- temp_df |>
-    dplyr::mutate(ride_id = dplyr::na_if(ride_id, ""),
-                  rideable_type = dplyr::na_if(rideable_type, ""),
-                  start_station_name = dplyr::na_if(start_station_name, ""),
-                  start_station_id = dplyr::na_if(start_station_id, ""),
-                  end_station_name = dplyr::na_if(end_station_name, ""),
-                  end_station_id = dplyr::na_if(end_station_id, "")) |>
+tempdf <- tripset |>
+    dplyr::collect() |>
+    dplyr::mutate(
+        ride_id = dplyr::na_if(ride_id, ""),
+        rideable_type = dplyr::na_if(rideable_type, ""),
+        start_station_name = dplyr::na_if(start_station_name, ""),
+        start_station_id = dplyr::na_if(start_station_id, ""),
+        end_station_name = dplyr::na_if(end_station_name, ""),
+        end_station_id = dplyr::na_if(end_station_id, "")
+    ) |>
     tidyr::drop_na()
+```
 
+```{r}
 
+duckdb::duckdb_unregister(dbconn,
+                          "tripset")
+
+rm(tripset)
 ```
 
 ```{r}
 
 cat("Row count after dropping incomplete observations: ", 
-    length(temp_df$ride_id))
+    length(tempdf$ride_id))
 ```
 
 ```{r}
 
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    as.data.frame() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "trip_tbl")
-
-
-
-## S4 method for signature 'duckdb_connection,character,data.frame'
-dbWriteTable(
-  conn,
-  name,
-  value,
-  row.names = FALSE,
-  overwrite = FALSE,
-  append = FALSE,
-  field.types = NULL,
-  temporary = FALSE,
-  ...
-)
-
-
-dplyr::tbl(dbconn,
-           "cleanTripdata") |>
-    dplyr::select(ride_id) |>
-    dplyr::distinct() |>
-    dplyr::count(name = "Distinct Observations") 
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(ride_id) |>
-    dplyr::distinct() |>
-    dplyr::count(name = "Distinct Ride ID's") |>
-    dplyr::show_query()
-```
-
-```{r}
-
-
-dplyr::tbl(duckCon,
-           "duckbase") |>
-    dplyr::select(started_at, member_casual) |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::filter(member_casual == "member") |>
-    dplyr::summarize(Annuals = count(member_casual)) |>
-    as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
-                         name = "Counts_By_Month_Annuals")
-```
-
-```{r}
-# With list_rbind(), map can be used to create a dataframe from a list of files
-#oneTibble <- purrr::map(csvFileList[1:12], 
- #                       read_csv) |>
-#   purrr::list_rbind ()
-
-```
-
-Run a count on how many rows or observations there are in our dataset.
-
-```{r}
-
-
-
-sql_countRideIds <- paste0(
-    "SELECT COUNT(*) AS 'Distinct Ride IDs' ",
-    "FROM (",
-    "SELECT DISTINCT ride_id ",
-    "FROM trip_data
-    )"
-)
-
-
-qres_countRideIds <- duckdb::dbSendQuery(conn = dbconn,
-                                        statement = sql_countRideIds)
-
-fetch_countRiders <- duckdb::dbFetch(qres_countRideIds)
-
-fetch_countRiders
-
-duckdb::dbClearResult(qres_countRideIds)
+Complete_Observations <- length(tempdf[[1]])
+cat("Incomplete observations dropped:", orig_rowCount - Complete_Observations)
 ```
 
 We started with 5,719,877 observations for the time period of Jan-Dec 2023, then drop_na() removed 1,388,170 of those observations.
 
-```{r}
-
-# Keeping track of observations/rows dropped.
-tibble::tibble(
-    Complete_Observations = length(oneTibble [[1]]),
-    "Rows Deleted by drop_na()" = originalLength - Complete_Observations
-)
-```
-
-```{r}
-
-
-# Maybe only need to check ride_id column? I wish.
-dplyr::distinct(oneTibble, dplyr::pick ("ride_id")) |>
-    dplyr::count(name = "Distinct Ride ID's")
-```
+Maybe we only need to check the ride_id column? That might not be true.
 
 Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
 
-Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are possibly hidden duplicated observations. There is no mention that more than one bike can be checked out at once in the project description.
-
-I assumed that having the exact same times/dates and stations for two different ride IDs is a mistake. Although, I do not know how that error would happen.
-
-I could have assumed one person could check out multiple cycles at once. That, however, has only happened 18 times over the course of a full year. One would suppose that would happen in groups more often than 1-2 times a month, on average. A scenario where one person pays and gets "*Venmo'd*" later by their friends comes to mind.
-
 ```{r}
 
+
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n".
-temp_dupeTable <- temp_df |>
+temp_dupeTable <- tempdf |>
     arrow::as_arrow_table() |>
     arrow::to_duckdb() |>
     dplyr::select(started_at:end_station_name) |>
-    # Counts of rows for column 'n'
+    # Counts of unique rows added for column 'n'
     dplyr::add_count(started_at,
                      ended_at,
                      start_station_name,
@@ -299,34 +207,26 @@ temp_dupeTable <- temp_df |>
     dplyr::arrange(started_at) |>
     arrow::to_arrow() |>
     dplyr::collect()
+```
 
-duckdb::dbWriteTable(dbconn,
-                     "dupeTable",
-                     temp_dupeTable)
+Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are possibly hidden duplicated observations.
 
-rm(temp_dupeTable)
+I assumed that having the exact same times/dates and stations for two different ride IDs is a mistake. Although, I do not know how that error would happen. I could have assumed one person could check out multiple cycles at once. That, however, has only happened 18 times over the course of a full year.
 
-dupeTable <- dplyr::tbl(dbconn,
-           "dupeTable") |>
-    dplyr::collect()
+```{r}
 
-dupeTable
+n <- dupeTable |> 
+    dplyr::distinct(n) |>
+    as.integer()
+
+cat("All distinct values of duplicates, n =", 
+    n)
 ```
 
 ```{r}
 
 cat("Total observations that have and are duplicates: ",
        length(dupeTable[[1]]))
-```
-
-```{r}
-
-distinct_n <- dplyr::tbl(dbconn,
-                         "dupeTable") |>
-    dplyr::distinct(n) |>
-    as.data.frame()
-
-cat("All distinct values of duplicates, n =", distinct_n[[1]])
 ```
 
 By applying distinct() on dupeTable, we see the only distinct value is 2. We can safely conclude that, of the duplicates, each has a mininum and maximum of 1 extra copy.
@@ -348,34 +248,36 @@ undupedTable <- dupeTable |>
                      .keep_all = TRUE) |>
     arrow::to_arrow() |>
     dplyr::collect()
-
-duckdb::dbWriteTable(dbconn,
-                     "undupedTable",
-                     undupedTable)
-
-undupedTable <- dplyr::tbl(dbconn,
-                           "undupedTable") |>
-    dplyr::collect()
-
-undupedTable
 ```
-
-Our predicted value for observations in the undupedTable was indeed 18.
 
 ```{r}
 
-incorrectDistinct <-
-    dplyr::distinct(oneTibble, dplyr::pick("ride_id")) |>
-    dplyr::count(name = "Incorrect Distinct Observations")
+n <- undupedTable |>
+    dplyr::select(started_at) |>
+    dplyr::distinct() |>
+    dplyr::count() |>
+    as.integer()
 
-incorrectDistinct
+cat("Count of distinct observations: ", n)
+```
+
+The count of observed distinct values for the un-duplicated table was indeed 18.
+
+```{r}
+# Run a count on how many rows or observations there are in the dataset.
+incorrectDistinct <-
+    dplyr::distinct(tempdf, dplyr::pick("ride_id")) |>
+    dplyr::count(name = "Incorrect Distinct Observations") |>
+    as.integer()
+
+cat("The incorrect count of distinct observations:", incorrectDistinct)
 ```
 
 ```{r}
 
 correctDistinct <-
     dplyr::distinct(
-        oneTibble,
+        tempdf,
         dplyr::pick(
             "started_at",
             "start_station_name",
@@ -383,29 +285,29 @@ correctDistinct <-
             "end_station_name"
         )
     ) |>
-    dplyr::count(name = "Corrected Distinct Observations")
+    dplyr::count() |>
+    as.integer()
 
-correctDistinct
+cat("The corrected count of distinct observations we expect to see: ", correctDistinct)
 ```
 
 ```{r}
 
 correctionTibble <-
     tibble::tibble(
-        Uncorrected = uncorrectDistinct[[1]],
-        Expected_Corrected = correctDistinct[[1]],
-        Removed_Obs = Uncorrected - Corrected
+        Incorrect= incorrectDistinct,
+        Correct = correctDistinct,
+        Removed = Incorrect - Correct
     )
 
 correctionTibble
 ```
 
-Uncorrected number of observations (nobs) after drop_na() was 4,331,707. The corrected nobs after removing one copy of the duplicates since all of them had only one duplicate, resulted in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 additional observations were removed.
+The incorrect number of observations (nobs) after drop_na() was 4,331,707. The correct nobs after removing one copy of the duplicates since all of them had only one duplicate, resulting in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 additional observations were removed.
 
 ```{r}
 
-
-oneTibble <- oneTibble |>
+tempdf <- tempdf |>
     dplyr::distinct(started_at, 
                     start_station_name, 
                     ended_at,
@@ -415,102 +317,26 @@ oneTibble <- oneTibble |>
 
 ```{r}
 
-nrow(oneTibble)
+n <-  nrow(tempdf)
+
+cat("Correct actual observation count: ", n)
 ```
+
+The actual observation count after applying distinct() on the 4 parameters listed aligns with what we predicted.
 
 ```{r}
 
 # sorting the entire table by the start_at column
-oneTibble <- oneTibble |>
+tempdf <- tempdf |>
     dplyr::arrange(started_at)
 ```
 
-It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
-
-# Efficiency Side-Quest
-
-## Parquet Filesystem
-
-The multi-file partitioning of the dataset should result in faster queries in certain situations. Parquet files require less long term storage space than CSV's as well.
-
-[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
-
-### Comparing .Parquet and .CSV Performance
-
 ```{r}
 
-# Move tibble out of memory and into a long term storage file(s). 
-arrow::write_parquet(oneTibble, sink = "oneQuet")
-
-# Create a dataset.
-dataquet <- arrow::open_dataset("oneQuet",
-                                format = "parquet")
-
-# Create partitioned dataset.
-dataquet <- dataquet |>
-    dplyr::group_by(month = lubridate::month(started_at))
-
-# Write a partitioned backup filesystem so we don't have to do any of the above steps again moving forward. 
-dataquet |>
-    arrow::write_dataset(path = "parquets",
-                         format = "parquet")
-
-# Dataset needs to point towards the new partitioned parquet file system.
-dataquet <- arrow::open_dataset(sources = "parquets",
-                              format = "parquet")
-
-# Dataset that points towards our original CSV file system (can it be considered "partitioned"?)  
-csvset <- arrow::open_dataset(sources = "tripdata",
-                              format = "csv")
-
-# I also wanted to test performance of dataset based on "un-partitioned" .CSV file system
-onecsvset <- csvset |>
-    arrow::write_csv_arrow(sink = "oneCSVfile")
-
-# Arrow dataset needs to point to the .CSV file
-onecsvset <- arrow::open_csv_dataset(sources = "oneCSVfile")
-```
-
-We test the performance of a query to a one .CSV file dataset.
-
-```{r}
-
-onecsvset |>
-    dplyr::filter(rideable_type == "classic_bike") |>
-    group_by(month) |>
-    collect() |>
-    system.time()
-```
-
-Testing the performance of a query to a "partitioned" .CSV file dataset.
-
-```{r}
-
-csvset |>
-    dplyr::filter(rideable_type == "classic_bike") |>
-    group_by(month) |>
-    collect() |>
-    system.time()
-```
-
-Testing the performance of a query to a partitioned .Parquet file dataset.
-
-```{r}
-
-dataquet |>
-    dplyr::filter(rideable_type == "classic_bike") |>
-    group_by(month) |>
-    collect() |>
-    system.time()
 ```
 
 ```{r}
 
-# Need do some more testing. Opening from .Parquet file made previously. 
-twoTibble <- arrow::read_parquet("oneQuet", as_data_frame = TRUE)
-
-# Having file backups of pre-processed data comes in handy. 
-oneTibble <- readr::read_csv("oneCSVfile")
 
 twoTibble["end_station_id"] |>
     dplyr::group_by(end_station_id) |>
@@ -558,9 +384,9 @@ twoTibble["end_station_id"] |>
     )
 ```
 
-## DuckDB: In memory OLAP Database
+It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
 
-[Why DuckDB?](https://duckdb.org/why_duckdb)
+## 
 
 You can read in the above link why I would choose to use DuckDB and OLAP for this project.
 
@@ -1158,4 +984,53 @@ dplyr::tbl(dbconn,
            "trip_tbl") |>
     as.data.frame() |>
     dplyr::glimpse()
+```
+
+```{r}
+sql_countRideIds <- paste0(
+    "SELECT COUNT(*) AS 'Distinct Ride IDs' ",
+    "FROM (",
+    "SELECT DISTINCT ride_id ",
+    "FROM trip_data
+    )"
+)
+
+
+qres_countRideIds <- duckdb::dbSendQuery(conn = dbconn,
+                                        statement = sql_countRideIds)
+
+fetch_countRiders <- duckdb::dbFetch(qres_countRideIds)
+
+fetch_countRiders
+
+duckdb::dbClearResult(qres_countRideIds)
+```
+
+```{r}
+# With list_rbind(), map can be used to create a dataframe from a list of files
+#oneTibble <- purrr::map(csvFileList[1:12], 
+ #                       read_csv) |>
+#   purrr::list_rbind ()
+
+```
+
+```{r}
+
+# Keeping track of observations/rows dropped.
+arrow::write_dataset(format = "parquet") |>
+    dplyr::group_by(month = lubridate::month(started_at))
+
+```
+
+```{r}
+dplyr::tbl(duckCon,
+           "duckbase") |>
+    dplyr::select(started_at, member_casual) |>
+    dplyr::group_by(MonthNum = lubridate::month(
+        lubridate::as_datetime(started_at))) |>
+    dplyr::filter(member_casual == "member") |>
+    dplyr::summarize(Annuals = count(member_casual)) |>
+    as.data.frame() |>
+    duckdb::dbWriteTable(conn = duckCon,
+                         name = "Counts_By_Month_Annuals")
 ```
