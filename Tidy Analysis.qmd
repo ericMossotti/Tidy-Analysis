@@ -162,14 +162,6 @@ tempdf <- tripset |>
 
 ```{r}
 
-duckdb::duckdb_unregister(dbconn,
-                          "tripset")
-
-rm(tripset)
-```
-
-```{r}
-
 cat("Row count after dropping incomplete observations: ", 
     length(tempdf$ride_id))
 ```
@@ -190,7 +182,7 @@ Initially, the assumption that 4,331,707 is what should be expected as total uni
 
 
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n".
-temp_dupeTable <- tempdf |>
+dupeTable <- tempdf |>
     arrow::as_arrow_table() |>
     arrow::to_duckdb() |>
     dplyr::select(started_at:end_station_name) |>
@@ -219,7 +211,7 @@ n <- dupeTable |>
     dplyr::distinct(n) |>
     as.integer()
 
-cat("All distinct values of duplicates, n =", 
+cat("All distinct values of duplicates: ", 
     n)
 ```
 
@@ -265,9 +257,13 @@ The count of observed distinct values for the un-duplicated table was indeed 18.
 
 ```{r}
 # Run a count on how many rows or observations there are in the dataset.
-incorrectDistinct <-
-    dplyr::distinct(tempdf, dplyr::pick("ride_id")) |>
+incorrectDistinct <- tempdf |>
+    arrow::as_arrow_table() |>
+    arrow::to_duckdb() |>
+    dplyr::distinct(dplyr::pick("ride_id")) |>
     dplyr::count(name = "Incorrect Distinct Observations") |>
+    arrow::to_arrow() |>
+    dplyr::collect() |>
     as.integer()
 
 cat("The incorrect count of distinct observations:", incorrectDistinct)
@@ -275,9 +271,10 @@ cat("The incorrect count of distinct observations:", incorrectDistinct)
 
 ```{r}
 
-correctDistinct <-
+correctDistinct <- tempdf |>
+    arrow::as_arrow_table() |>
+    arrow::to_duckdb() |>
     dplyr::distinct(
-        tempdf,
         dplyr::pick(
             "started_at",
             "start_station_name",
@@ -286,6 +283,8 @@ correctDistinct <-
         )
     ) |>
     dplyr::count() |>
+    arrow::to_arrow() |>
+    dplyr::collect() |>
     as.integer()
 
 cat("The corrected count of distinct observations we expect to see: ", correctDistinct)
@@ -318,7 +317,6 @@ tempdf <- tempdf |>
 ```{r}
 
 n <-  nrow(tempdf)
-
 cat("Correct actual observation count: ", n)
 ```
 
@@ -333,46 +331,84 @@ tempdf <- tempdf |>
 
 ```{r}
 
+duckdb::duckdb_unregister(dbconn,
+                          "tripset")
+
+tempdf |> arrow::write_parquet(sink = "temps")
+
+rm(tempdf)
+
+tripset <- arrow::open_dataset(sources = "temps",
+                               format = "parquet") |>
+    dplyr::group_by(month = lubridate::month(started_at))
+
+tripset |> arrow::write_dataset(path = "tripdata",
+                                format = "feather",
+                                partitioning = "month",
+                                existing_data_behavior = "overwrite")
+
+unlink("temps")
+
+tripset <- arrow::open_dataset(sources = "tripdata",
+                               format = "feather")
+
+
+#duckdb::duckdb_register_arrow(dbconn, 
+#                              "tripset")
+
+tripset |>
+    dplyr::glimpse()
 ```
 
 ```{r}
 
+arrow::to_duckdb(tripset)
 
-twoTibble["end_station_id"] |>
+
+thing <- tripset |>
+    dplyr::select(end_station_id) |>
+    as.data.frame() |>
     dplyr::group_by(end_station_id) |>
-    dplyr::filter(stringr::str_detect(end_station_id,
-                                      "\\.[:digit:]$")) |>
-    dplyr::count()
+    dplyr::filter(stringr::str_detect(end_station_id, "\\.[:digit:]$")) |>
+    dplyr::count(name = "Count") |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
 
-#
-twoTibble["end_station_id"] |>
+
+decimalTibble <- tripset |>
+    dplyr::select(end_station_id) |>
+    as.data.frame() |>
     dplyr::group_by(end_station_id) |>
-    dplyr::filter(stringr::str_detect(end_station_id,
-                                      "\\.[:digit:]$")) |>
-    dplyr::count()
+    dplyr::filter(stringr::str_detect(end_station_id, "\\.[:digit:]$")) |>
+    dplyr::count() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
 
-#
-twoTibble["end_station_id"] |>
+check1079 <- tripset |>
+    dplyr::select(end_station_id) |>
+    as.data.frame() |>
+    dplyr::collect() |>
     dplyr::group_by(end_station_id) |>
     dplyr::filter(stringr::str_detect(end_station_id,
                                       "[1][0][7][9]")) |>
-    dplyr::count()
+    dplyr::count() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
 
-##
-oneTibble["end_station_id"] |>
-    dplyr::group_by(end_station_id) |>
-    dplyr::filter(stringr::str_detect(end_station_id,
-                                      "\\.[:digit:]$")) |>
-    dplyr::count()
 
-#
-twoTibble["end_station_id"] |>
+doubleDecimalTibble <- tripset |>
+    dplyr::select(end_station_id) |>
+    as.data.frame() |>
     dplyr::filter(stringr::str_detect(end_station_id,
                                       "\\.[1-9]$")) |>
-    dplyr::arrange(end_station_id)
+    dplyr::arrange(end_station_id) |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
 
-#
-twoTibble["end_station_id"] |>
+
+removes_oneDecimalNum <- tripset |>
+    dplyr::select(end_station_id) |>
+    dplyr::collect() |>
     dplyr::filter(stringr::str_detect(end_station_id,
                                       "\\.[:digit:]$")) |>
     dplyr::mutate(
@@ -381,12 +417,14 @@ twoTibble["end_station_id"] |>
             pattern = "\\.[:digit:]$",
             replacement = ""
         )
-    )
+    ) |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
+
+removes_oneDecimalNum
 ```
 
 It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
-
-## 
 
 You can read in the above link why I would choose to use DuckDB and OLAP for this project.
 
