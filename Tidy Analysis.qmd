@@ -24,7 +24,7 @@ This data doesn't require much domain knowledge to understand, but it is realist
 
 ## Importing Data Efficiently
 
-I think .ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs which then extracts the files of interest to a separate folder. I have the .Zip files folder deleted from the working directory after the .CSV files are extracted to reduce the total resource requirements of the project.
+.ZIP files are commonplace as they reduce long term storage requirements. There may already be a function that does this but it seemed a custom function was needed to unzip and relocate .CSV's to a separate folder. The .ZIP files folder deleted from the working directory after relocating files to save on overhead.
 
 ```{r}
 
@@ -46,7 +46,6 @@ tempfile_paths <- sprintf("tempFiles/%d-divvy-tripdata.csv",
 fileList <- sprintf("tripdata/%d-divvy-tripdata.csv",
                        202301:202312)
 
-    
 # Need some directories to store the files. 
 dir.create("tempZips")
 
@@ -59,20 +58,19 @@ tibble::tibble("URLs" = durls,
                "Zip File Paths" = tempZipPaths,
                "File Names" = fileNames,
                "Parquet File Paths" = tempfile_paths)
-
 ```
 
 ### File Downloads
 
 ```{r}
 
-curl::multi_download (durls,
-                      destfiles = tempZipPaths)
+curl::multi_download(durls,
+                     destfiles = tempZipPaths)
 ```
 
 ### Unzip, Convert and Relocate
 
-I wanted to reduce resource requirements by converting the .CSV files to .Feather so that there are no unneeded local copies of data. I don't want copies of .CSV files to stick around. The project is just about 1 GB for one year of data. It's recommended to use .Feather format for lighter projects, \~1GB or less, so felt that was a respectable choice. I may change to .Parquet if it becomes an issue.
+Converting the CSV files to Parquet saves on overhead, also. With CSV files, the data files in their original form were \~1GB; with Parquet, around 0.3GB. It seemed overkill to have a partitioned dataset filesystem for only 0.3GB of data.
 
 [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
@@ -121,17 +119,16 @@ cat(textvector[1], original_nobs,
 
 ```{r}
 
-tripTibble |>
-    dplyr::select(started_at, ended_at) |>
-    dplyr::transmute("trip_time" =
+tripTibble <- tripTibble |>
+    dplyr::mutate("trip_time" =
                          lubridate::time_length(
                              lubridate::interval(started_at,
                                                  ended_at),
-                             unit = "minute"))
+                             unit = "minute"),
+                  .keep = "all")
 ```
 
 ```{r}
-
 
 tripTibble |> arrow::write_dataset("tempFiles",
                                    existing_data_behavior = "delete")
@@ -160,6 +157,7 @@ tripset <- arrow::open_dataset(sources = fileList[1],
         end_station_name,
         end_station_id,
         member_casual,
+        trip_time,
         month,
         weekday,
         hour
@@ -169,36 +167,19 @@ tripset <- arrow::open_dataset(sources = fileList[1],
 
 tripset |>
     arrow::to_duckdb() |>
-    lubridate::interval(
-        lubridate::hms(started_at),
-        lubridate::hms(ended_at)) |>
-    dplyr::transmute("rideDuration" = difftime(
-        lubridate::hms(started_at),
-        lubridate::hms(ended_at))) |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-
-tripset |>
-    arrow::to_duckdb() |>
-    dplyr::ungroup() |>
-    dplyr::select("ride_id") |>
-    dplyr::count() |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-
-tripset |>
-    arrow::to_duckdb() |>
     dplyr::count() 
 
 tripset |> arrow::write_dataset(path = "tripdata",
                                 format = "parquet",
                                 existing_data_behavior = "delete")
 
-unlink("tempFiles",
-       recursive = TRUE)
 
 tripset <- arrow::open_dataset(sources = "tripdata",
                               format = "parquet")
+
+unlink("tempFiles",
+       recursive = TRUE)
+
 
 # Wanted to verify where the extracted data is at. 
 fileList <- list.files(path = "tripdata",
@@ -222,24 +203,6 @@ duckdb::duckdb_register_arrow(dbconn,
 
 ```{r}
 
-ride_id,
-rideable_type,
-started_at,
-start_station_name,
-start_station_id,
-ended_at,
-end_station_name,
-end_station_id,
-member_casual,
-month
-```
-
-We started with 5,719,877 observations for the time period of Jan-Dec 2023, then removed 1,388,170 of those original observations which were incomplete.
-
-Maybe we only need to check the ride_id column? Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
-
-```{r}
-
 
 doubleDecimalTibble <- tripset |>
     dplyr::select(end_station_id) |>
@@ -249,8 +212,6 @@ doubleDecimalTibble <- tripset |>
     dplyr::arrange(end_station_id) |>
     arrow::as_arrow_array() |>
     tibble::as_tibble()
-
-
 
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n".
 dupeTable <- tripset |>
@@ -273,9 +234,13 @@ dupeTable <- tripset |>
     tibble::as_tibble()
 ```
 
+We started with 5,719,877 observations for the time period of Jan-Dec 2023, then removed 1,388,170 of those original observations which were incomplete.
+
 Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are possibly hidden duplicated observations.
 
-I assumed that having the exact same times/dates and stations for two different ride IDs is a mistake. Although, I do not know how that error would happen. I could have assumed one person could check out multiple cycles at once. That, however, has only happened 18 times over the course of a full year.
+I assumed that having the exact same times/dates and stations for two different ride IDs is a mistake. Although, I do not know how that error would happen. I could have assumed one person could check out multiple cycles at once. That, however, has only happened 18 times over the course of a full year. Since it's only one copy every time, that also raises a red flag.
+
+Maybe we only need to check the ride_id column? Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters:
 
 ```{r}
 
@@ -346,7 +311,6 @@ cat("The incorrect count of distinct observations:", incorrectDistinct)
 
 ```{r}
 
-
 correctDistinct <- tripset |>
     arrow::to_duckdb() |>
     dplyr::distinct(
@@ -368,6 +332,7 @@ cat("The corrected count of distinct observations we expect to see: ", correctDi
 ```
 
 ```{r}
+
 tripset |>
     arrow::to_duckdb() |>
     dplyr::distinct(
@@ -402,7 +367,7 @@ The incorrect number of observations (nobs) was 4,331,707. The correct nobs afte
 ```{r}
 
 tempTibb <- tripset |>
-    dplyr::select( ride_id:month) |>
+    dplyr::select(ride_id:month) |>
     arrow::to_duckdb() |>
     dplyr::distinct(started_at, 
                     start_station_name, 
@@ -414,67 +379,30 @@ tempTibb <- tripset |>
     arrow::as_arrow_array() |>
     tibble::as_tibble()
 
+# sorting the entire table by the start_at column
+tempTibb <- tempTibb |>
+    dplyr::arrange(started_at) |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
     
 tempTibb |>
     arrow::write_dataset(
         path = "tripdata",
-        format = "feather",
-        partitioning = "month",
-        existing_data_behavior = "overwrite"
+        format = "parquet",
+        existing_data_behavior = "delete"
     )
-
 ```
 
-```{r}
-
-n <-  nrow(tabledf)
-cat("Correct actual observation count: ", n)
-```
-
-The actual observation count after applying distinct() on the 4 parameters listed aligns with what we predicted.
-
-```{r}
-
-# sorting the entire table by the start_at column
-tabledf <- tabledf |>
-    dplyr::arrange(started_at) |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
-
-dplyr::glimpse(tabledf)
-```
+The actual observation count after applying distinct() on the 4 parameters listed aligns with what was expected.
 
 ```{r}
 
 duckdb::duckdb_unregister(dbconn,
-                          "tripset")
+                          "trip_data")
 
-tempdf |> arrow::write_parquet(sink = "temps")
-
-rm(tempdf)
-
-?arrow::as_data_type()
-
-tripset <- arrow::open_dataset(sources = "temps",
-                               format = "parquet") |>
-    dplyr::group_by(month = lubridate::month(started_at))
-
-tripset |> arrow::write_dataset(path = "tripdata",
-                                format = "feather",
-                                partitioning = "month",
-                                existing_data_behavior = "delete")
-
-unlink("temps")
 
 tripset <- arrow::open_dataset(sources = "tripdata",
-                               format = "feather")
-
-
-#duckdb::duckdb_register_arrow(dbconn, 
-#                              "tripset")
-
-tripset |>
-    dplyr::glimpse()
+                               format = "parquet")
 ```
 
 ```{r}
@@ -499,7 +427,6 @@ check1079 <- tripset |>
     arrow::as_arrow_array() |>
     tibble::as_tibble()
 
-
 doubleDecimalTibble <- tripset |>
     dplyr::select(end_station_id) |>
     as.data.frame() |>
@@ -508,7 +435,6 @@ doubleDecimalTibble <- tripset |>
     dplyr::arrange(end_station_id) |>
     arrow::as_arrow_array() |>
     tibble::as_tibble()
-
 
 removes_oneDecimalNum <- tripset |>
     dplyr::select(end_station_id) |>
@@ -527,30 +453,15 @@ removes_oneDecimalNum <- tripset |>
 removes_oneDecimalNum
 ```
 
-It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. I tried asking if station IDs containing decimal points are meant to be that way. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
-
-You can read in the above link why I would choose to use DuckDB and OLAP for this project.
-
 ```{r}
 
-# Open .Parquet file dataset connection pointer
-dataquet <- arrow::open_dataset(sources = "parquets",
-                                format = "parquet")
-# Establish a new connection to a virtual in memory DuckDB database
-duckCon <- DBI::dbConnect(duckdb::duckdb())
+duckdb::duckdb_register_arrow(dbconn,
+                              "trip_data",
+                              tripset)
 
-# Register the dataset connection object to a location in the DDB
-duckdb::duckdb_register_arrow(duckCon,
-                              "duckbase",
-                              dataquet)
 ```
 
-```{r}
-
-# Confirm table info
-dplyr::tbl(duckCon, "duckbase") |>
-         dplyr::glimpse()
-```
+It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
 
 ## SQL Queries
 
@@ -577,11 +488,11 @@ duckdb::dbClearResult(qres_countRiders)
 
 # Makes formatting simpler for SQL syntax
 sql_selectHead <- paste0("SELECT(*) ",
-                         "FROM duckbase ",
+                         "FROM trip_data ",
                          "LIMIT 10")
 
 # Query result variable
-qres_selectHead <- duckdb::dbSendQuery(conn = duckCon,
+qres_selectHead <- duckdb::dbSendQuery(conn = dbconn,
                                        sql_selectHead)
 # Results of query in the form of a dataframe
 duckdb::dbFetch(qres_selectHead)
@@ -591,24 +502,34 @@ duckdb::dbClearResult(qres_selectHead)
 
 ```{r}
 
-rCounts_types <- dplyr::tbl(duckCon, "duckbase") |>
+rCounts_types <- dplyr::tbl(dbconn, 
+                            "trip_data") |>
     dplyr::group_by(rideable_type) |>
     dplyr::summarize(rideTypecount = count(), .groups = "keep")
 
-groupCount_rideTypes
+rCounts_types
+```
+
+```{r}
+
+```
+
+```{r}
 #or this
 sql_ridetypeCounts <- paste0(
     "SELECT rideable_type, count() AS 'rt_counts' ",
-    "FROM duckbase ",
+    "FROM trip_data ",
     "GROUP BY rideable_type"
 )
 
-qres_ridetypeCounts <- duckdb::dbSendQuery(conn = duckCon,
+qres_ridetypeCounts <- duckdb::dbSendQuery(conn = dbconn,
                                            statement = sql_ridetypeCounts
  )
 
 fres_rideTypeCounts <- duckdb::dbFetch(qres_ridetypeCounts)
 #duckdb::dbClearResult(qres_ridetypeCounts)
+
+fres_rideTypeCounts
 ```
 
 ```{r}
@@ -627,25 +548,12 @@ newPlot
 
 ```{r}
 
-dplyr::tbl(duckCon, "duckbase") |>
+dplyr::tbl(dbconn, 
+           "trip_data") |>
     dplyr::group_by(start_station_id) |>
     dplyr::summarize(StationCount = count()) |>
     dplyr::arrange(StationCount, start_station_id)
 ```
-
-With DuckDB, approx 0.11s to return query results.
-
-```{r}
-
-dataquet |>
-    dplyr::collect() |>
-    dplyr::distinct(ride_id) |>
-    dplyr::count(name = "Distinct Ride ID's")
-```
-
-In memory parquet file query took around 2.55s. Personal observation, increased memory usage by about 1GB for non-DuckDB queries and around 0.2GB for DuckDB (DDB) queries. Clear advantage goes to: DDB.
-
-Running SQL syntax to the DDB has the same results as dplyr package syntax. These are relatively faster and more memory efficient than querying an in memory dataframe.
 
 ```{sql, connection = dbconn, output.var = "Distinct"}
 
@@ -709,7 +617,7 @@ FROM (
   SELECT MonthNum, COUNT() AS RidesPerMonth
   FROM (
     SELECT
-      duckbase.*,
+      trip_data.*,
       EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
     FROM duckbase
   )
@@ -722,7 +630,7 @@ FROM (
 cat(stringr::str_c(as.integer(MonthlyAVG)))
 ```
 
-```{sql, connection = duckCon, output.var = "sql_counts_month_casual"}
+```{sql, connection = dbconn, output.var = "sql_counts_month_casual"}
 
 SELECT MonthNum, COUNT(member_casual) AS Casuals
 FROM (
@@ -730,7 +638,7 @@ FROM (
     started_at,
     member_casual,
     EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM duckbase
+  FROM trip_data
   WHERE (member_casual = 'casual')
 )
 GROUP BY MonthNum
@@ -738,7 +646,7 @@ GROUP BY MonthNum
 
 #### Average Casuals Per Month
 
-```{sql, connection = duckCon, output.var = "sql_AVG_casual"}
+```{sql, connection = dbconn, output.var = "sql_AVG_casual"}
 
 SELECT AVG(Casuals) AS AvgCasuals
 FROM (
@@ -748,7 +656,7 @@ FROM (
       started_at,
       member_casual,
       EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM duckbase
+    FROM trip_data
     WHERE (member_casual = 'casual')
   )
   GROUP BY MonthNum
@@ -771,7 +679,7 @@ FROM (
     member_casual,
     rideable_type,
     EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM duckbase
+  FROM trip_data
   WHERE (member_casual = 'casual') AND (rideable_type = 'electric_bike')
 )
 GROUP BY MonthNum
@@ -787,13 +695,13 @@ FROM (
     member_casual,
     rideable_type,
     EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM duckbase
+  FROM trip_data
   WHERE (member_casual = 'member') AND (rideable_type = 'electric_bike')
 )
 GROUP BY MonthNum
 ```
 
-```{sql, connection = duckCon}
+```{sql, connection = dbconn}
 
 CREATE TABLE tbl_eCasuals AS 
 SELECT MonthNum, COUNT(member_casual) AS CasualsOnElectric
@@ -803,7 +711,7 @@ FROM (
     member_casual,
     rideable_type,
     EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM duckbase
+  FROM trip_data
   WHERE (member_casual = 'casual') AND (rideable_type = 'electric_bike')
 )
 GROUP BY MonthNum
@@ -811,14 +719,16 @@ GROUP BY MonthNum
 
 ```{r}
 
-duckdb::duckdb_list_arrow (duckCon)
+duckdb::duckdb_list_arrow(dbconn)
     
-duckdb::dbListTables(duckCon)
+duckdb::dbListTables(dbconn)
     
-dplyr::tbl(duckCon, "tbl_eCasuals") |>
+dplyr::tbl(dbconn, 
+           "tbl_eCasuals") |>
         dplyr::select_all()
     
-dplyr::tbl(duckCon, "tbl_eMembers") |>
+dplyr::tbl(dbconn, 
+           "tbl_eMembers") |>
     dplyr::select_all()
 ```
 
@@ -873,7 +783,7 @@ dplyr::tbl(duckCon,
     dplyr::summarize(RidesPerMonth = count()) |>
     dplyr::arrange(MonthNum) |>
     as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
+    duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month")
 ```
 
@@ -881,7 +791,8 @@ Verifying the new table and data
 
 ```{r}
 
-dplyr::tbl(duckCon, "Counts_By_Month") |>
+dplyr::tbl(dbconn, 
+           "Counts_By_Month") |>
     tibble::view(n = 12)
 ```
 
@@ -890,8 +801,8 @@ Adding a new column by joining a dataframe object to the Counts_By_Month table b
 ```{r}
 
 # monthly casual counts
-dplyr::tbl(duckCon,
-           "duckbase") |>
+dplyr::tbl(dbconn,
+           "trip_data") |>
     dplyr::select(started_at,
                   member_casual) |>
     dplyr::group_by(MonthNum = lubridate::month(
@@ -899,46 +810,48 @@ dplyr::tbl(duckCon,
     dplyr::filter(member_casual == "casual") |>
     dplyr::summarize(Casuals = count(member_casual)) |>
     as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
+    duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Casuals")
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon, "Counts_By_Month::Casual Riders") |>
+dplyr::tbl(dbconn, 
+           "Counts_By_Month::Casual Riders") |>
     tibble::view(n = 12)
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon,
-           "duckbase") |>
+dplyr::tbl(dbconn,
+           "trip_data") |>
     dplyr::select(started_at, member_casual) |>
     dplyr::group_by(MonthNum = lubridate::month(
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "member") |>
     dplyr::summarize(Annuals = count(member_casual)) |>
     as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
+    duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Annuals")
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon, "Counts_By_Month::Annual Members") |>
+dplyr::tbl(dbconn, 
+           "Counts_By_Month::Annual Members") |>
     tibble::view(n = 12)
 ```
 
 ```{r}
 
-duckdb::dbListTables(duckCon)
+duckdb::dbListTables(dbconn)
 ```
 
 ```{r}
 
 # create a monthly casual ebike riders table
-dplyr::tbl(duckCon,
-           "duckbase") |>
+dplyr::tbl(dbconn,
+           "trip_data") |>
     dplyr::select(started_at,
                   member_casual,
                   rideable_type) |>
@@ -948,21 +861,22 @@ dplyr::tbl(duckCon,
                   rideable_type == "electric_bike") |>
     dplyr::summarize(Casual_eBikers = count(member_casual)) |>
     as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
+    duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Casual_eBikers")
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon, "Counts_By_Month::Casual eBikers") |>
+dplyr::tbl(dbconn, 
+           "Counts_By_Month::Casual eBikers") |>
     tibble::view(n = 12)
 ```
 
 ```{r}
 
 # create a monthly annual member ebike riders table
-dplyr::tbl(duckCon,
-           "duckbase") |>
+dplyr::tbl(dbconn,
+           "trip_data") |>
     dplyr::select(started_at,
                   member_casual,
                   rideable_type) |>
@@ -972,7 +886,7 @@ dplyr::tbl(duckCon,
                   rideable_type == "electric_bike") |>
     dplyr::summarize(Annual_eBikers = count(member_casual)) |>
     as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
+    duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Annual_eBikers")
 ```
 
@@ -985,8 +899,8 @@ dplyr::tbl(duckCon, "Counts_By_Month::Annual Member eBikers") |>
 ```{r}
 
 # create a monthly annual member classic riders table
-dplyr::tbl(duckCon,
-           "duckbase") |>
+dplyr::tbl(dbconn,
+           "trip_data") |>
     dplyr::select(started_at,
                   member_casual,
                   rideable_type) |>
@@ -996,14 +910,14 @@ dplyr::tbl(duckCon,
                   rideable_type == "classic_bike") |>
     dplyr::summarize(Annual_classicBikers = count(member_casual)) |>
     as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
+    duckdb::dbWriteTable(conn = dbconn,
                          name = 
                              "Counts_By_Month_Annual_classicBikers")
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon, 
+dplyr::tbl(dbconn, 
            "Counts_By_Month::Annual Members::Classic Bikers") |>
     tibble::view(n = 12)
 ```
@@ -1011,8 +925,8 @@ dplyr::tbl(duckCon,
 ```{r}
 
 # create a table of monthly counts for casual riders on classic bikes
-dplyr::tbl(duckCon,
-           "duckbase") |>
+dplyr::tbl(dbconn,
+           "trip_data") |>
     dplyr::select(started_at,
                   member_casual,
                   rideable_type) |>
@@ -1022,156 +936,45 @@ dplyr::tbl(duckCon,
                   rideable_type == "classic_bike") |>
     dplyr::summarize(casual_classicBikers = count(member_casual)) |>
     as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
+    duckdb::dbWriteTable(conn = dbconn,
                          name = 
                              "Counts_By_Month_Casual_classicBikers")
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon, 
+dplyr::tbl(dbconn, 
            "Counts_By_Month::Casuals::Classic Bikers") |>
     tibble::view(n = 12)
 ```
 
 ```{r}
-duckdb::dbListTables(duckCon)
+duckdb::dbListTables(dbconn)
 ```
 
 ```{r}
 
-dplyr::tbl(duckCon,
+dplyr::tbl(dbconn,
            "Counts_By_Month") |>
-    dplyr::left_join(y = dplyr::tbl(duckCon,
+    dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Casuals")) |>
-    dplyr::left_join(y = dplyr::tbl(duckCon,
+    dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annuals")) |>
-    dplyr::left_join(y = dplyr::tbl(duckCon,
+    dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Casual_eBikers")) |>
-    dplyr::left_join(y = dplyr::tbl(duckCon,
+    dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annual_eBikers")) |>
-    dplyr::left_join(y = dplyr::tbl(duckCon,
+    dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Casual_classicBikers"))  |>
-    dplyr::left_join(y = dplyr::tbl(duckCon,
+    dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annual_classicBikers"))
 ```
 
 ```{r}
 
-
 dplyr::tbl(dbconn,
-           "trip_tbl") |>
+           "trip_data") |>
     dplyr::group_by(rideable_type) |>
     dplyr::summarize(rideTypecount = count(),
                      .groups = "keep")
-```
-
-```{r}
-dplyr::tbl(dbconn,
-           "trip_tbl") |>
-    dplyr::select(ride_id) |>
-    dplyr::count()
-```
-
-```{r}
-?dplyr::tbl
-
-colHeaders <- duckdb::dbListFields(dbconn,
-                     "trip_tbl")
-
-as.list(colHeaders)
-
-
-colheads <- dplyr::tbl(dbconn,
-           "trip_tbl") |>
-    colnames()
-
-naList <- dplyr::tbl(dbconn,
-           "trip_tbl") |>
-    dplyr::select(ride_id) |>
-    as.list()
-
-naList |>  purrr::map_lgl(!is.na("ride_id"))
-
-naList |> purrr::detect(is.na())
-
-x1 <- list(naList)
-
-naList <- naList |>
-    dplyr::pull(ride_id)
-
-naList |>
-    purrr::detect(is.na())
-
-colheads
-
-
-#    dplyr::select(ride_id:month) |>
-#    dplyr::filter(!is.na(started_at)) |>
-#    dplyr::distinct() |>
-#    dplyr::count(name = "Distinct Observations") 
-
-countRows <- paste0("SELECT COUNT(*) AS 'Observations' ",
-                    "FROM trip_tbl")
-
-resCount <- duckdb::dbSendQuery(dbconn, countRows)
-fetchCount <- duckdb::dbFetch(resCount)
-fetchCount
-```
-
-```{r}
-
-dplyr::tbl(dbconn,
-           "trip_tbl") |>
-    as.data.frame() |>
-    dplyr::glimpse()
-```
-
-```{r}
-sql_countRideIds <- paste0(
-    "SELECT COUNT(*) AS 'Distinct Ride IDs' ",
-    "FROM (",
-    "SELECT DISTINCT ride_id ",
-    "FROM trip_data
-    )"
-)
-
-
-qres_countRideIds <- duckdb::dbSendQuery(conn = dbconn,
-                                        statement = sql_countRideIds)
-
-fetch_countRiders <- duckdb::dbFetch(qres_countRideIds)
-
-fetch_countRiders
-
-duckdb::dbClearResult(qres_countRideIds)
-```
-
-```{r}
-# With list_rbind(), map can be used to create a dataframe from a list of files
-#oneTibble <- purrr::map(csvFileList[1:12], 
- #                       read_csv) |>
-#   purrr::list_rbind ()
-
-```
-
-```{r}
-
-# Keeping track of observations/rows dropped.
-arrow::write_dataset(format = "parquet") |>
-    dplyr::group_by(month = lubridate::month(started_at))
-
-```
-
-```{r}
-dplyr::tbl(duckCon,
-           "duckbase") |>
-    dplyr::select(started_at, member_casual) |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::filter(member_casual == "member") |>
-    dplyr::summarize(Annuals = count(member_casual)) |>
-    as.data.frame() |>
-    duckdb::dbWriteTable(conn = duckCon,
-                         name = "Counts_By_Month_Annuals")
 ```
