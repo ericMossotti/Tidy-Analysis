@@ -18,13 +18,13 @@ knitr::opts_chunk$set(message = FALSE,
 
 # Overview
 
-This project was built from the ground up. I wanted to reach a broad audience with what I consider as a major data analysis project. I wanted to redo the Google Data Analytics capstone project to better my chances of reaching a larger audience. Also, the dataset is immense with millions of observations from just a single year. It seems to be regularly updated with more data, interestingly enough, despite being simulated.
+The dataset is immense with millions of observations from just a single year. It seems to be regularly updated with more data, interestingly enough, despite being simulated.
 
-I finished the course years ago and did some minimal analysis to meet the course requirements, but didn't do as much as I wanted. I reused some of the course materials as helpful, general purpose reminders. The dataset doesn't require too much domain knowledge to understand but is realistic (with errors) and challenging enough to be worthy of processing and analysis.
+This data doesn't require much domain knowledge to understand, but it is realistic (with errors) and challenging enough to be worthy of processing and analysis.
 
 ## Importing Data Efficiently
 
-I think .ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs which then extracts the files of interest to a separate folder.
+I think .ZIP files would be commonplace as they substantially reduce long term storage requirements. Here, I wrote a short function that downloads a set of zip files from web URLs which then extracts the files of interest to a separate folder. I have the .Zip files folder deleted from the working directory after the .CSV files are extracted to reduce the total resource requirements of the project.
 
 ```{r}
 
@@ -42,6 +42,9 @@ fileNames <- sprintf("%d-divvy-tripdata.csv",
 
 tempfile_paths <- sprintf("tempFiles/%d-divvy-tripdata.csv",
                       202301:202312)
+
+fileList <- sprintf("tripdata/%d-divvy-tripdata.csv",
+                       202301:202312)
 
     
 # Need some directories to store the files. 
@@ -69,17 +72,16 @@ curl::multi_download (durls,
 
 ### Unzip, Convert and Relocate
 
-I wanted to reduce resource requirements by converting the .CSV files to .Parquet so that there are no unneeded local copies of data.
+I wanted to reduce resource requirements by converting the .CSV files to .Feather so that there are no unneeded local copies of data. I don't want copies of .CSV files to stick around. The project is just about 1 GB for one year of data. It's recommended to use .Feather format for lighter projects, \~1GB or less, so felt that was a respectable choice. I may change to .Parquet if it becomes an issue.
 
 [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
 ```{r}
 
 # A custom function that makes unzipping, converting and relocating files all at once, simple. 
-unz_to_parquets <- function (x = tempfile_paths,
-                             y = tempZipPaths,
-                             z = fileNames) {
-    
+unz_relocate <- function (x = tempfile_paths,
+                          y = tempZipPaths,
+                          z = fileNames) {
     for (i in seq(x)) {
         
         utils::unzip (y[i],
@@ -89,20 +91,108 @@ unz_to_parquets <- function (x = tempfile_paths,
     }
 }
 
-unz_to_parquets()
+unz_relocate()
 
 unlink("tempZips",
        recursive = TRUE)
+```
+
+```{r}
+
+tripTibble <- purrr::map(tempfile_paths[1:12],
+                         arrow::read_csv_arrow) |>
+    purrr::list_rbind()
+
+original_nobs <- nrow(tripTibble)
+
+tripTibble <- tripTibble |>
+    tidyr::drop_na()
+
+complete_nobs <- nrow(tripTibble)
+
+textvector <- c(" Count before dropping incomplete rows: ",
+                "Count after dropping incomplete rows: ")
+
+cat(textvector[1], original_nobs, 
+    "\n \n",
+    textvector[2], complete_nobs
+    )
+```
+
+```{r}
+
+tripTibble |>
+    dplyr::select(started_at, ended_at) |>
+    dplyr::transmute("trip_time" =
+                         lubridate::time_length(
+                             lubridate::interval(started_at,
+                                                 ended_at),
+                             unit = "minute"))
+```
+
+```{r}
 
 
-tripset <- arrow::open_dataset("tempFiles",
-                               format = "csv") |>
-    dplyr::group_by(month = lubridate::month(started_at))
-    
-    
+tripTibble |> arrow::write_dataset("tempFiles",
+                                   existing_data_behavior = "delete")
+
+fileList <- list.files(path = "tempFiles",
+                              full.names = TRUE,
+                              recursive = TRUE)
+
+fileList
+```
+
+```{r}
+
+tripset <- arrow::open_dataset(sources = fileList[1],
+                               format = "parquet") |>
+    dplyr::group_by(month = lubridate::month(started_at),
+                    weekday = lubridate::wday(started_at),
+                    hour = lubridate::hour(started_at)) |>
+    dplyr::select(
+        ride_id,
+        rideable_type,
+        started_at,
+        start_station_name,
+        start_station_id,
+        ended_at,
+        end_station_name,
+        end_station_id,
+        member_casual,
+        month,
+        weekday,
+        hour
+    ) |>
+   dplyr::ungroup()
+
+
+tripset |>
+    arrow::to_duckdb() |>
+    lubridate::interval(
+        lubridate::hms(started_at),
+        lubridate::hms(ended_at)) |>
+    dplyr::transmute("rideDuration" = difftime(
+        lubridate::hms(started_at),
+        lubridate::hms(ended_at))) |>
+    arrow::to_arrow() |>
+    dplyr::collect()
+
+tripset |>
+    arrow::to_duckdb() |>
+    dplyr::ungroup() |>
+    dplyr::select("ride_id") |>
+    dplyr::count() |>
+    arrow::to_arrow() |>
+    dplyr::collect()
+
+tripset |>
+    arrow::to_duckdb() |>
+    dplyr::count() 
+
 tripset |> arrow::write_dataset(path = "tripdata",
-                         format = "parquet")
-
+                                format = "parquet",
+                                existing_data_behavior = "delete")
 
 unlink("tempFiles",
        recursive = TRUE)
@@ -111,11 +201,11 @@ tripset <- arrow::open_dataset(sources = "tripdata",
                               format = "parquet")
 
 # Wanted to verify where the extracted data is at. 
-parquetFileList <- list.files(path = "tripdata",
+fileList <- list.files(path = "tripdata",
                               full.names = TRUE,
                               recursive = TRUE)
 
-parquetFileList
+fileList
 ```
 
 [Why DuckDB?](https://duckdb.org/why_duckdb)
@@ -130,60 +220,40 @@ duckdb::duckdb_register_arrow(dbconn,
                               tripset)
 ```
 
-```{sql, connection = dbconn, output.var = "countRows"}
-
-SELECT 
-    COUNT(*) as 'Observations' 
-FROM 
-    trip_data
-```
-
-Counting the original Observations
-
-```{r}
-orig_rowCount <- countRows[[1]]
-cat("Row count of total observations before any cleaning:", orig_rowCount[[1]])
-```
-
 ```{r}
 
-tempdf <- tripset |>
-    dplyr::collect() |>
-    dplyr::mutate(
-        ride_id = dplyr::na_if(ride_id, ""),
-        rideable_type = dplyr::na_if(rideable_type, ""),
-        start_station_name = dplyr::na_if(start_station_name, ""),
-        start_station_id = dplyr::na_if(start_station_id, ""),
-        end_station_name = dplyr::na_if(end_station_name, ""),
-        end_station_id = dplyr::na_if(end_station_id, "")
-    ) |>
-    tidyr::drop_na()
+ride_id,
+rideable_type,
+started_at,
+start_station_name,
+start_station_id,
+ended_at,
+end_station_name,
+end_station_id,
+member_casual,
+month
 ```
+
+We started with 5,719,877 observations for the time period of Jan-Dec 2023, then removed 1,388,170 of those original observations which were incomplete.
+
+Maybe we only need to check the ride_id column? Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
 
 ```{r}
 
-cat("Row count after dropping incomplete observations: ", 
-    length(tempdf$ride_id))
-```
 
-```{r}
+doubleDecimalTibble <- tripset |>
+    dplyr::select(end_station_id) |>
+    as.data.frame() |>
+    dplyr::filter(stringr::str_detect(end_station_id,
+                                      "\\.[1-9]$")) |>
+    dplyr::arrange(end_station_id) |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
 
-Complete_Observations <- length(tempdf[[1]])
-cat("Incomplete observations dropped:", orig_rowCount - Complete_Observations)
-```
-
-We started with 5,719,877 observations for the time period of Jan-Dec 2023, then drop_na() removed 1,388,170 of those observations.
-
-Maybe we only need to check the ride_id column? That might not be true.
-
-Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters might be worth the time.
-
-```{r}
 
 
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n".
-dupeTable <- tempdf |>
-    arrow::as_arrow_table() |>
+dupeTable <- tripset |>
     arrow::to_duckdb() |>
     dplyr::select(started_at:end_station_name) |>
     # Counts of unique rows added for column 'n'
@@ -198,7 +268,9 @@ dupeTable <- tempdf |>
     dplyr::ungroup() |>
     dplyr::arrange(started_at) |>
     arrow::to_arrow() |>
-    dplyr::collect()
+    dplyr::collect() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
 ```
 
 Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are possibly hidden duplicated observations.
@@ -231,7 +303,6 @@ Number of rows in the dupeTable is 36. Because each duplicated observation has o
 
 # If there were 2 rows of duplicates, we would want to end up with 1 row after removing the extras.
 undupedTable <- dupeTable |>
-    arrow::as_arrow_table() |>
     arrow::to_duckdb() |>
     dplyr::distinct(started_at,
                      start_station_name,
@@ -239,7 +310,9 @@ undupedTable <- dupeTable |>
                      end_station_name,
                      .keep_all = TRUE) |>
     arrow::to_arrow() |>
-    dplyr::collect()
+    dplyr::collect() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
 ```
 
 ```{r}
@@ -256,14 +329,16 @@ cat("Count of distinct observations: ", n)
 The count of observed distinct values for the un-duplicated table was indeed 18.
 
 ```{r}
+
 # Run a count on how many rows or observations there are in the dataset.
-incorrectDistinct <- tempdf |>
-    arrow::as_arrow_table() |>
+incorrectDistinct <- tripset |>
     arrow::to_duckdb() |>
     dplyr::distinct(dplyr::pick("ride_id")) |>
     dplyr::count(name = "Incorrect Distinct Observations") |>
     arrow::to_arrow() |>
     dplyr::collect() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble() |>
     as.integer()
 
 cat("The incorrect count of distinct observations:", incorrectDistinct)
@@ -271,8 +346,8 @@ cat("The incorrect count of distinct observations:", incorrectDistinct)
 
 ```{r}
 
-correctDistinct <- tempdf |>
-    arrow::as_arrow_table() |>
+
+correctDistinct <- tripset |>
     arrow::to_duckdb() |>
     dplyr::distinct(
         dplyr::pick(
@@ -285,9 +360,29 @@ correctDistinct <- tempdf |>
     dplyr::count() |>
     arrow::to_arrow() |>
     dplyr::collect() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble() |>
     as.integer()
 
 cat("The corrected count of distinct observations we expect to see: ", correctDistinct)
+```
+
+```{r}
+tripset |>
+    arrow::to_duckdb() |>
+    dplyr::distinct(
+        dplyr::pick(
+            "started_at",
+            "start_station_name",
+            "ended_at",
+            "end_station_name"
+        )
+    ) |>
+    arrow::to_arrow() |>
+    dplyr::collect() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble() |>
+    dplyr::glimpse()
 ```
 
 ```{r}
@@ -302,21 +397,37 @@ correctionTibble <-
 correctionTibble
 ```
 
-The incorrect number of observations (nobs) after drop_na() was 4,331,707. The correct nobs after removing one copy of the duplicates since all of them had only one duplicate, resulting in 4,331,689 nobs. By applying distinct() on the tibble for 4 parameters at once, 18 additional observations were removed.
+The incorrect number of observations (nobs) was 4,331,707. The correct nobs after removing duplicated obs was 4,331,689. In short, 18 additional obs were removed.
 
 ```{r}
 
-tempdf <- tempdf |>
+tempTibb <- tripset |>
+    dplyr::select( ride_id:month) |>
+    arrow::to_duckdb() |>
     dplyr::distinct(started_at, 
                     start_station_name, 
                     ended_at,
                     end_station_name, 
-                    .keep_all = TRUE)
+                    .keep_all = TRUE) |>
+    arrow::to_arrow() |>
+    dplyr::collect() |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
+
+    
+tempTibb |>
+    arrow::write_dataset(
+        path = "tripdata",
+        format = "feather",
+        partitioning = "month",
+        existing_data_behavior = "overwrite"
+    )
+
 ```
 
 ```{r}
 
-n <-  nrow(tempdf)
+n <-  nrow(tabledf)
 cat("Correct actual observation count: ", n)
 ```
 
@@ -325,8 +436,12 @@ The actual observation count after applying distinct() on the 4 parameters liste
 ```{r}
 
 # sorting the entire table by the start_at column
-tempdf <- tempdf |>
-    dplyr::arrange(started_at)
+tabledf <- tabledf |>
+    dplyr::arrange(started_at) |>
+    arrow::as_arrow_array() |>
+    tibble::as_tibble()
+
+dplyr::glimpse(tabledf)
 ```
 
 ```{r}
@@ -338,6 +453,8 @@ tempdf |> arrow::write_parquet(sink = "temps")
 
 rm(tempdf)
 
+?arrow::as_data_type()
+
 tripset <- arrow::open_dataset(sources = "temps",
                                format = "parquet") |>
     dplyr::group_by(month = lubridate::month(started_at))
@@ -345,7 +462,7 @@ tripset <- arrow::open_dataset(sources = "temps",
 tripset |> arrow::write_dataset(path = "tripdata",
                                 format = "feather",
                                 partitioning = "month",
-                                existing_data_behavior = "overwrite")
+                                existing_data_behavior = "delete")
 
 unlink("temps")
 
@@ -361,19 +478,6 @@ tripset |>
 ```
 
 ```{r}
-
-arrow::to_duckdb(tripset)
-
-
-thing <- tripset |>
-    dplyr::select(end_station_id) |>
-    as.data.frame() |>
-    dplyr::group_by(end_station_id) |>
-    dplyr::filter(stringr::str_detect(end_station_id, "\\.[:digit:]$")) |>
-    dplyr::count(name = "Count") |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
-
 
 decimalTibble <- tripset |>
     dplyr::select(end_station_id) |>
@@ -415,9 +519,8 @@ removes_oneDecimalNum <- tripset |>
         end_station_id = stringr::str_replace(
             string = end_station_id,
             pattern = "\\.[:digit:]$",
-            replacement = ""
-        )
-    ) |>
+            replacement = "")
+        ) |>
     arrow::as_arrow_array() |>
     tibble::as_tibble()
 
