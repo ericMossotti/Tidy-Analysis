@@ -10,6 +10,12 @@ format: html
 toc: true
 ---
 
+#### Future Plans:
+
+-   [Use Quarto Pub for project deployment](https://quarto.org/docs/publishing/quarto-pub.html)
+
+-   
+
 ```{r include = FALSE}
 
 knitr::opts_chunk$set(message = FALSE, 
@@ -81,11 +87,10 @@ unz_relocate <- function (x = tempfile_paths,
                           y = tempZipPaths,
                           z = fileNames) {
     for (i in seq(x)) {
-        
-        utils::unzip (y[i],
-                      z[i])
-        file.rename (z[i],
-                     x[i])
+        utils::unzip(y[i],
+                     z[i])
+        file.rename(z[i],
+                    x[i])
     }
 }
 
@@ -164,7 +169,6 @@ tripset <- arrow::open_dataset(sources = fileList[1],
     ) |>
    dplyr::ungroup()
 
-
 tripset |>
     arrow::to_duckdb() |>
     dplyr::count() 
@@ -173,13 +177,11 @@ tripset |> arrow::write_dataset(path = "tripdata",
                                 format = "parquet",
                                 existing_data_behavior = "delete")
 
-
 tripset <- arrow::open_dataset(sources = "tripdata",
                               format = "parquet")
 
 unlink("tempFiles",
        recursive = TRUE)
-
 
 # Wanted to verify where the extracted data is at. 
 fileList <- list.files(path = "tripdata",
@@ -202,7 +204,6 @@ duckdb::duckdb_register_arrow(dbconn,
 ```
 
 ```{r}
-
 
 doubleDecimalTibble <- tripset |>
     dplyr::select(end_station_id) |>
@@ -400,7 +401,6 @@ The actual observation count after applying distinct() on the 4 parameters liste
 duckdb::duckdb_unregister(dbconn,
                           "trip_data")
 
-
 tripset <- arrow::open_dataset(sources = "tripdata",
                                format = "parquet")
 ```
@@ -449,8 +449,6 @@ removes_oneDecimalNum <- tripset |>
         ) |>
     arrow::as_arrow_array() |>
     tibble::as_tibble()
-
-removes_oneDecimalNum
 ```
 
 ```{r}
@@ -458,7 +456,6 @@ removes_oneDecimalNum
 duckdb::duckdb_register_arrow(dbconn,
                               "trip_data",
                               tripset)
-
 ```
 
 It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
@@ -511,10 +508,6 @@ rCounts_types
 ```
 
 ```{r}
-
-```
-
-```{r}
 #or this
 sql_ridetypeCounts <- paste0(
     "SELECT rideable_type, count() AS 'rt_counts' ",
@@ -560,16 +553,16 @@ dplyr::tbl(dbconn,
 SELECT COUNT 
     (DISTINCT ride_id) AS "Distinct Obs"
 FROM
-    duckbase
+    trip_data
 ```
 
 ```{sql, connection = dbconn, output.var = "MonthlyRiders"}
 
 SELECT MonthNum, AVG(COUNT) AS RidesPerMonth
 FROM (
-    SELECT duckbase.*,
+    SELECT trip_data.*,
     EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM duckbase
+    FROM trip_data
 )
 GROUP BY MonthNum
 ORDER BY RidesPerMonth
@@ -582,9 +575,9 @@ FROM (
   SELECT MonthNum, COUNT() AS RidesPerMonth
   FROM (
     SELECT
-      duckbase.*,
+      tripdata.*,
       EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM duckbase
+    FROM trip_data
   )
   GROUP BY MonthNum
 )
@@ -593,7 +586,7 @@ FROM (
 ```{sql, connection = dbconn, output.var = "sql_counts_month_rides"}
 
 SELECT month, COUNT(member_casual) AS Rider_count
-FROM duckbase
+FROM trip_data
 GROUP BY month
 ORDER BY month
 ```
@@ -601,7 +594,7 @@ ORDER BY month
 ```{sql, connection = dbconn, output.var = "sql_counts_month_rides"}
 
 SELECT month, COUNT(member_casual) AS Rider_count
-FROM duckbase
+FROM trip_data
 GROUP BY month
 ORDER BY month
 ```
@@ -670,7 +663,7 @@ cat(stringr::str_c(as.integer(AVG_casuals_monthly)))
 
 # testing section
 
-```{sql, connection = duckCon, output.var = "sql_counts_month_casual_e"}
+```{sql, connection = dbconn, output.var = "sql_counts_month_casual_e"}
 
 SELECT MonthNum, COUNT(member_casual) AS CasualsOnElectric
 FROM (
@@ -685,7 +678,7 @@ FROM (
 GROUP BY MonthNum
 ```
 
-```{sql, connection = duckCon}
+```{sql, connection = dbconn}
 
 CREATE TABLE tbl_eMembers AS
 SELECT MonthNum, COUNT(member_casual) AS MembersOnElectric
@@ -740,44 +733,13 @@ LEFT JOIN tbl_eCasuals
   ON (tbl_eMembers.MonthNum = tbl_eCasuals.MonthNum)
 ```
 
-### One Big Table?
+### One Big Table
 
 ```{r}
 
-duckdb::duckdb_list_arrow(duckCon)
-
-rAvg_riders <-
-    dplyr::tbl(duckCon,
-               "duckbase") |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::summarize(RidesPerMonth = count()) |>
-    dplyr::summarize(AvgRiders = mean(RidesPerMonth))
-
-rAvg_casuals <-
-    dplyr::tbl(duckCon,
-               "duckbase") |>
-    dplyr::select(started_at, member_casual) |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::filter(member_casual == "casual") |>
-    dplyr::summarize(Casuals = count()) |>
-    dplyr::summarize(AvgCasuals = mean(Casuals))
-
-
-rCounts_types
-
-rAvg_riders
-rAvg_casuals
-```
-
-##### Counts_By_Month
-
-```{r}
-
-# Create a monthly count summaries table to be joined by other tables
-dplyr::tbl(duckCon,
-           "duckbase") |>
+# Create monthly count summary tables to be joined
+dplyr::tbl(dbconn,
+           "trip_data") |>
     dplyr::group_by(MonthNum = lubridate::month(
         lubridate::as_datetime(started_at))) |>
     dplyr::summarize(RidesPerMonth = count()) |>
@@ -785,22 +747,7 @@ dplyr::tbl(duckCon,
     as.data.frame() |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month")
-```
 
-Verifying the new table and data
-
-```{r}
-
-dplyr::tbl(dbconn, 
-           "Counts_By_Month") |>
-    tibble::view(n = 12)
-```
-
-Adding a new column by joining a dataframe object to the Counts_By_Month table by month.
-
-```{r}
-
-# monthly casual counts
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(started_at,
@@ -812,16 +759,6 @@ dplyr::tbl(dbconn,
     as.data.frame() |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Casuals")
-```
-
-```{r}
-
-dplyr::tbl(dbconn, 
-           "Counts_By_Month::Casual Riders") |>
-    tibble::view(n = 12)
-```
-
-```{r}
 
 dplyr::tbl(dbconn,
            "trip_data") |>
@@ -833,23 +770,7 @@ dplyr::tbl(dbconn,
     as.data.frame() |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Annuals")
-```
 
-```{r}
-
-dplyr::tbl(dbconn, 
-           "Counts_By_Month::Annual Members") |>
-    tibble::view(n = 12)
-```
-
-```{r}
-
-duckdb::dbListTables(dbconn)
-```
-
-```{r}
-
-# create a monthly casual ebike riders table
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(started_at,
@@ -863,18 +784,7 @@ dplyr::tbl(dbconn,
     as.data.frame() |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Casual_eBikers")
-```
 
-```{r}
-
-dplyr::tbl(dbconn, 
-           "Counts_By_Month::Casual eBikers") |>
-    tibble::view(n = 12)
-```
-
-```{r}
-
-# create a monthly annual member ebike riders table
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(started_at,
@@ -888,15 +798,6 @@ dplyr::tbl(dbconn,
     as.data.frame() |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Annual_eBikers")
-```
-
-```{r}
-
-dplyr::tbl(duckCon, "Counts_By_Month::Annual Member eBikers") |>
-    tibble::view(n = 12)
-```
-
-```{r}
 
 # create a monthly annual member classic riders table
 dplyr::tbl(dbconn,
@@ -913,18 +814,7 @@ dplyr::tbl(dbconn,
     duckdb::dbWriteTable(conn = dbconn,
                          name = 
                              "Counts_By_Month_Annual_classicBikers")
-```
 
-```{r}
-
-dplyr::tbl(dbconn, 
-           "Counts_By_Month::Annual Members::Classic Bikers") |>
-    tibble::view(n = 12)
-```
-
-```{r}
-
-# create a table of monthly counts for casual riders on classic bikes
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(started_at,
@@ -944,11 +834,36 @@ dplyr::tbl(dbconn,
 ```{r}
 
 dplyr::tbl(dbconn, 
-           "Counts_By_Month::Casuals::Classic Bikers") |>
+           "Counts_By_Month") |>
+    tibble::view(n = 12)
+
+dplyr::tbl(dbconn, 
+           "Counts_By_Month_Casuals") |>
+    tibble::view(n = 12)
+
+dplyr::tbl(dbconn, 
+           "Counts_By_Month_Annuals") |>
+    tibble::view(n = 12)
+
+dplyr::tbl(dbconn, 
+           "Counts_By_Month_Casual_eBikers") |>
+    tibble::view(n = 12)
+
+dplyr::tbl(dbconn, 
+           "Counts_By_Month_Annual_eBikers") |>
+    tibble::view(n = 12)
+
+dplyr::tbl(dbconn, 
+           "Counts_By_Month_Annual_classicBikers") |>
+    tibble::view(n = 12)
+
+dplyr::tbl(dbconn, 
+           "Counts_By_Month_Casual_classicBikers") |>
     tibble::view(n = 12)
 ```
 
 ```{r}
+
 duckdb::dbListTables(dbconn)
 ```
 
@@ -970,11 +885,9 @@ dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annual_classicBikers"))
 ```
 
-```{r}
+# Testing Observable (JS)
 
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::group_by(rideable_type) |>
-    dplyr::summarize(rideTypecount = count(),
-                     .groups = "keep")
+```{ojs}
+
+
 ```
