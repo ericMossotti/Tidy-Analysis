@@ -26,7 +26,7 @@ knitr::opts_chunk$set(message = FALSE,
 
 The dataset is immense with millions of observations from just a single year. It seems to be regularly updated with more data, interestingly enough, despite being simulated.
 
-This data doesn't require much domain knowledge to understand, but it is realistic (with errors) and challenging enough to be worthy of processing and analysis.
+This doesn't require much domain knowledge to understand, but it is realistic (with errors) and challenging enough for data analysis.
 
 ## Importing Data Efficiently
 
@@ -460,6 +460,8 @@ duckdb::duckdb_register_arrow(dbconn,
 
 It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
 
+# TESTING SECTION
+
 ## SQL Queries
 
 ```{r}
@@ -556,17 +558,6 @@ FROM
     trip_data
 ```
 
-```{sql, connection = dbconn, output.var = "MonthlyRiders"}
-
-SELECT MonthNum, AVG(COUNT) AS RidesPerMonth
-FROM (
-    SELECT trip_data.*,
-    EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM trip_data
-)
-GROUP BY MonthNum
-ORDER BY RidesPerMonth
-```
 
 ```{sql, connection = dbconn, output.var = "MonthlyAVG"}
 
@@ -575,20 +566,12 @@ FROM (
   SELECT MonthNum, COUNT() AS RidesPerMonth
   FROM (
     SELECT
-      tripdata.*,
+      trip_data.*,
       EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
     FROM trip_data
   )
   GROUP BY MonthNum
 )
-```
-
-```{sql, connection = dbconn, output.var = "sql_counts_month_rides"}
-
-SELECT month, COUNT(member_casual) AS Rider_count
-FROM trip_data
-GROUP BY month
-ORDER BY month
 ```
 
 ```{sql, connection = dbconn, output.var = "sql_counts_month_rides"}
@@ -612,7 +595,7 @@ FROM (
     SELECT
       trip_data.*,
       EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM duckbase
+    FROM trip_data
   )
   GROUP BY MonthNum
 )
@@ -637,7 +620,6 @@ FROM (
 GROUP BY MonthNum
 ```
 
-#### Average Casuals Per Month
 
 ```{sql, connection = dbconn, output.var = "sql_AVG_casual"}
 
@@ -656,12 +638,6 @@ FROM (
 )
 ```
 
-```{r}
-
-cat(stringr::str_c(as.integer(AVG_casuals_monthly)))
-```
-
-# testing section
 
 ```{sql, connection = dbconn, output.var = "sql_counts_month_casual_e"}
 
@@ -725,7 +701,7 @@ dplyr::tbl(dbconn,
     dplyr::select_all()
 ```
 
-```{sql, connection = duckCon}
+```{sql, connection = dbconn}
 
 SELECT tbl_eMembers.*, CasualsOnElectric
 FROM tbl_eMembers
@@ -799,7 +775,6 @@ dplyr::tbl(dbconn,
     duckdb::dbWriteTable(conn = dbconn,
                          name = "Counts_By_Month_Annual_eBikers")
 
-# create a monthly annual member classic riders table
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(started_at,
@@ -887,7 +862,3 @@ dplyr::tbl(dbconn,
 
 # Testing Observable (JS)
 
-```{ojs}
-
-
-```
