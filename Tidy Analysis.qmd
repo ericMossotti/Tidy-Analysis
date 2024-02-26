@@ -14,7 +14,11 @@ toc: true
 
 -   [Use Quarto Pub for project deployment](https://quarto.org/docs/publishing/quarto-pub.html)
 
--   
+#### References:
+
+-   [Why DuckDB?](https://duckdb.org/why_duckdb)
+
+-   [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
 ```{r include = FALSE}
 
@@ -28,7 +32,7 @@ The dataset is immense with millions of observations from just a single year. It
 
 This doesn't require much domain knowledge to understand, but it is realistic (with errors) and challenging enough for data analysis.
 
-## Importing Data Efficiently
+## Data Import
 
 .ZIP files are commonplace as they reduce long term storage requirements. There may already be a function that does this but it seemed a custom function was needed to unzip and relocate .CSV's to a separate folder. The .ZIP files folder deleted from the working directory after relocating files to save on overhead.
 
@@ -66,19 +70,14 @@ tibble::tibble("URLs" = durls,
                "Parquet File Paths" = tempfile_paths)
 ```
 
-### File Downloads
-
 ```{r}
 
+# A simple way to download and relocate several files. 
 curl::multi_download(durls,
                      destfiles = tempZipPaths)
 ```
 
-### Unzip, Convert and Relocate
-
 Converting the CSV files to Parquet saves on overhead, also. With CSV files, the data files in their original form were \~1GB; with Parquet, around 0.3GB. It seemed overkill to have a partitioned dataset filesystem for only 0.3GB of data.
-
-[R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
 ```{r}
 
@@ -98,9 +97,6 @@ unz_relocate()
 
 unlink("tempZips",
        recursive = TRUE)
-```
-
-```{r}
 
 tripTibble <- purrr::map(tempfile_paths[1:12],
                          arrow::read_csv_arrow) |>
@@ -110,16 +106,6 @@ original_nobs <- nrow(tripTibble)
 
 tripTibble <- tripTibble |>
     tidyr::drop_na()
-
-complete_nobs <- nrow(tripTibble)
-
-textvector <- c(" Count before dropping incomplete rows: ",
-                "Count after dropping incomplete rows: ")
-
-cat(textvector[1], original_nobs, 
-    "\n \n",
-    textvector[2], complete_nobs
-    )
 ```
 
 ```{r}
@@ -131,9 +117,7 @@ tripTibble <- tripTibble |>
                                                  ended_at),
                              unit = "minute"),
                   .keep = "all")
-```
 
-```{r}
 
 tripTibble |> arrow::write_dataset("tempFiles",
                                    existing_data_behavior = "delete")
@@ -142,7 +126,9 @@ fileList <- list.files(path = "tempFiles",
                               full.names = TRUE,
                               recursive = TRUE)
 
-fileList
+cat("Files now in tempFiles: ",
+    "\n\n",
+    fileList)
 ```
 
 ```{r}
@@ -161,6 +147,10 @@ tripset <- arrow::open_dataset(sources = fileList[1],
         ended_at,
         end_station_name,
         end_station_id,
+        start_lat,
+        start_lng,
+        end_lat,
+        end_lng,
         member_casual,
         trip_time,
         month,
@@ -168,10 +158,6 @@ tripset <- arrow::open_dataset(sources = fileList[1],
         hour
     ) |>
    dplyr::ungroup()
-
-tripset |>
-    arrow::to_duckdb() |>
-    dplyr::count() 
 
 tripset |> arrow::write_dataset(path = "tripdata",
                                 format = "parquet",
@@ -188,31 +174,12 @@ fileList <- list.files(path = "tripdata",
                               full.names = TRUE,
                               recursive = TRUE)
 
-fileList
-```
-
-[Why DuckDB?](https://duckdb.org/why_duckdb)
-
-```{r}
-
-dbconn <- DBI::dbConnect(duckdb::duckdb())
-
-# For querying the arrow dataset with the benefits of an OLAP database. 
-duckdb::duckdb_register_arrow(dbconn,
-                              "trip_data",
-                              tripset)
+cat("Files in /tripdata: ",
+    "\n\n",
+    fileList)
 ```
 
 ```{r}
-
-doubleDecimalTibble <- tripset |>
-    dplyr::select(end_station_id) |>
-    as.data.frame() |>
-    dplyr::filter(stringr::str_detect(end_station_id,
-                                      "\\.[1-9]$")) |>
-    dplyr::arrange(end_station_id) |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
 
 # This is a separate table used to analyze the observations returned as not distinct (n > 1). This adds an extra column labeled "n".
 dupeTable <- tripset |>
@@ -235,13 +202,11 @@ dupeTable <- tripset |>
     tibble::as_tibble()
 ```
 
-We started with 5,719,877 observations for the time period of Jan-Dec 2023, then removed 1,388,170 of those original observations which were incomplete.
+We started with 5,719,877 observations (obs) for dates spanning January to December, 2023, then removed 1,388,170 incomplete obs.
 
-Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are possibly hidden duplicated observations.
+Of the other columns, it seems that the start_time, end_time, start_station, and end_station could show if there are possibly hidden duplicated observations. Those 4 variables combined results in the most granular view of any one observation. Meaning, that data would naturally only have duplicates in error.
 
-I assumed that having the exact same times/dates and stations for two different ride IDs is a mistake. Although, I do not know how that error would happen. I could have assumed one person could check out multiple cycles at once. That, however, has only happened 18 times over the course of a full year. Since it's only one copy every time, that also raises a red flag.
-
-Maybe we only need to check the ride_id column? Initially, the assumption that 4,331,707 is what should be expected as total unique observations. Perhaps it's not that easy, though? Checking the other possible parameters:
+I assumed that having the exact same times/dates and stations for two different ride IDs is a mistake. Although, I do not know how that error would happen. I could have assumed one person could check out multiple bikes at once. In that instance, each bike could be assigned a unique ride_id. That, however, has only happened 18 times over a year. Since it's only one copy every time, that also raises a red flag. I did not notice any other correlations with station_id/name, member_casual, or ride_type for those particular duplicated data.
 
 ```{r}
 
@@ -249,17 +214,13 @@ n <- dupeTable |>
     dplyr::distinct(n) |>
     as.integer()
 
-cat("All distinct values of duplicates: ", 
-    n)
-```
-
-```{r}
-
-cat("Total observations that have and are duplicates: ",
+cat(" Distinct copy count of dupes: ", n,
+    "\n\n",
+    "Total observations that have and are duplicates: ",
        length(dupeTable[[1]]))
 ```
 
-By applying distinct() on dupeTable, we see the only distinct value is 2. We can safely conclude that, of the duplicates, each has a mininum and maximum of 1 extra copy.
+By applying distinct() on dupeTable, we see the only distinct value is 2. We can safely conclude that, of the duplicates, each has a minimum and maximum of 1 extra copy.
 
 Number of rows in the dupeTable is 36. Because each duplicated observation has one duplicate (n = 2), expected removed nobs is 18.
 
@@ -279,9 +240,6 @@ undupedTable <- dupeTable |>
     dplyr::collect() |>
     arrow::as_arrow_array() |>
     tibble::as_tibble()
-```
-
-```{r}
 
 n <- undupedTable |>
     dplyr::select(started_at) |>
@@ -307,11 +265,6 @@ incorrectDistinct <- tripset |>
     tibble::as_tibble() |>
     as.integer()
 
-cat("The incorrect count of distinct observations:", incorrectDistinct)
-```
-
-```{r}
-
 correctDistinct <- tripset |>
     arrow::to_duckdb() |>
     dplyr::distinct(
@@ -329,35 +282,12 @@ correctDistinct <- tripset |>
     tibble::as_tibble() |>
     as.integer()
 
-cat("The corrected count of distinct observations we expect to see: ", correctDistinct)
-```
-
-```{r}
-
-tripset |>
-    arrow::to_duckdb() |>
-    dplyr::distinct(
-        dplyr::pick(
-            "started_at",
-            "start_station_name",
-            "ended_at",
-            "end_station_name"
-        )
-    ) |>
-    arrow::to_arrow() |>
-    dplyr::collect() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble() |>
-    dplyr::glimpse()
-```
-
-```{r}
-
 correctionTibble <-
     tibble::tibble(
-        Incorrect= incorrectDistinct,
-        Correct = correctDistinct,
-        Removed = Incorrect - Correct
+        "Original Obs" = original_nobs,
+        "Uncorrected Complete Obs" = incorrectDistinct,
+        "Corrected Complete Obs" = correctDistinct,
+        "Removed Obs" = (incorrectDistinct - correctDistinct)
     )
 
 correctionTibble
@@ -367,8 +297,8 @@ The incorrect number of observations (nobs) was 4,331,707. The correct nobs afte
 
 ```{r}
 
-tempTibb <- tripset |>
-    dplyr::select(ride_id:month) |>
+tripset |>
+    dplyr::select(ride_id:hour) |>
     arrow::to_duckdb() |>
     dplyr::distinct(started_at, 
                     start_station_name, 
@@ -376,30 +306,15 @@ tempTibb <- tripset |>
                     end_station_name, 
                     .keep_all = TRUE) |>
     arrow::to_arrow() |>
+    dplyr::arrange() |>
     dplyr::collect() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
-
-# sorting the entire table by the start_at column
-tempTibb <- tempTibb |>
-    dplyr::arrange(started_at) |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
-    
-tempTibb |>
+    #arrow::as_arrow_array() |>
+    #tibble::as_tibble() |>
     arrow::write_dataset(
         path = "tripdata",
         format = "parquet",
-        existing_data_behavior = "delete"
+        existing_data_behavior = "overwrite"
     )
-```
-
-The actual observation count after applying distinct() on the 4 parameters listed aligns with what was expected.
-
-```{r}
-
-duckdb::duckdb_unregister(dbconn,
-                          "trip_data")
 
 tripset <- arrow::open_dataset(sources = "tripdata",
                                format = "parquet")
@@ -409,36 +324,35 @@ tripset <- arrow::open_dataset(sources = "tripdata",
 
 decimalTibble <- tripset |>
     dplyr::select(end_station_id) |>
-    as.data.frame() |>
-    dplyr::group_by(end_station_id) |>
+    arrow::to_duckdb() |>
+        dplyr::group_by(end_station_id) |>
     dplyr::filter(stringr::str_detect(end_station_id, "\\.[:digit:]$")) |>
     dplyr::count() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
+    arrow::to_arrow() |>
+    dplyr::collect()
 
 check1079 <- tripset |>
     dplyr::select(end_station_id) |>
-    as.data.frame() |>
-    dplyr::collect() |>
+    arrow::to_duckdb() |>
     dplyr::group_by(end_station_id) |>
     dplyr::filter(stringr::str_detect(end_station_id,
                                       "[1][0][7][9]")) |>
     dplyr::count() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
+    arrow::to_arrow() |>
+    dplyr::collect()
 
 doubleDecimalTibble <- tripset |>
     dplyr::select(end_station_id) |>
-    as.data.frame() |>
+    arrow::to_duckdb() |>
     dplyr::filter(stringr::str_detect(end_station_id,
                                       "\\.[1-9]$")) |>
     dplyr::arrange(end_station_id) |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
+    arrow::to_arrow() |>
+    dplyr::collect()
 
 removes_oneDecimalNum <- tripset |>
     dplyr::select(end_station_id) |>
-    dplyr::collect() |>
+    arrow::to_duckdb() |>
     dplyr::filter(stringr::str_detect(end_station_id,
                                       "\\.[:digit:]$")) |>
     dplyr::mutate(
@@ -447,15 +361,8 @@ removes_oneDecimalNum <- tripset |>
             pattern = "\\.[:digit:]$",
             replacement = "")
         ) |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
-```
-
-```{r}
-
-duckdb::duckdb_register_arrow(dbconn,
-                              "trip_data",
-                              tripset)
+    arrow::to_arrow() |>
+    dplyr::collect()
 ```
 
 It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
@@ -465,6 +372,13 @@ It doesn't really seem like the station IDs containing decimals (e.g., ####.# or
 ## SQL Queries
 
 ```{r}
+
+dbconn <- DBI::dbConnect(duckdb::duckdb())
+
+# For querying the arrow dataset with the benefits of an OLAP database. 
+duckdb::duckdb_register_arrow(dbconn,
+                              "trip_data",
+                              tripset)
 
 sql_countRiders <- paste0(
     "SELECT COUNT(*) AS 'Distinct Riders' ",
@@ -558,7 +472,6 @@ FROM
     trip_data
 ```
 
-
 ```{sql, connection = dbconn, output.var = "MonthlyAVG"}
 
 SELECT AVG(RidesPerMonth) AS "MonthlyAVG"
@@ -582,9 +495,53 @@ GROUP BY month
 ORDER BY month
 ```
 
-# Descriptive Statistics
+# Statistics
 
-#### Stats: Monthly Average
+Numerical stats:
+
+-   continuous and discrete data
+
+    -   time series scatter plots
+
+        -   color points by rider type
+
+        -   color points by bike type
+
+        -   independent variables = month/day of week/hour of day
+
+        -   dependent variables = rider counts
+
+    -   Type 1 Error rate of hypothesis tests
+
+        -   risk of rejecting the null hypothesis if the null hypothesis is true
+
+        -   compute p-values
+
+            -   t.test()
+
+            -   perm.t.test()
+
+            -   wilcox.t.test()
+
+-   Categorical data
+
+    -   
+
+Paired-Samples T-Test (Dependent-Samples T-Test):
+
+Pretest-Posttest Design with One Group:
+
+-   Generate random numbers,
+
+-   Perform simulations to assess the performance of statistical methods,
+
+-   Perform hypothesis tests,
+
+-   Compute confidence intervals,
+
+-   Make sample size computations,
+
+-   Report statistical results.
 
 ```{sql, connection = dbconn, output.var = "sql_avg_month_rides"}
 
@@ -620,7 +577,6 @@ FROM (
 GROUP BY MonthNum
 ```
 
-
 ```{sql, connection = dbconn, output.var = "sql_AVG_casual"}
 
 SELECT AVG(Casuals) AS AvgCasuals
@@ -637,7 +593,6 @@ FROM (
   GROUP BY MonthNum
 )
 ```
-
 
 ```{sql, connection = dbconn, output.var = "sql_counts_month_casual_e"}
 
@@ -824,7 +779,6 @@ dplyr::tbl(dbconn,
            "Counts_By_Month_Casual_eBikers") |>
     tibble::view(n = 12)
 
-dplyr::tbl(dbconn, 
            "Counts_By_Month_Annual_eBikers") |>
     tibble::view(n = 12)
 
@@ -860,5 +814,8 @@ dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annual_classicBikers"))
 ```
 
-# Testing Observable (JS)
-
+| Col1 | Col2 | Col3 |
+|------|------|------|
+|      |      |      |
+|      |      |      |
+|      |      |      |
