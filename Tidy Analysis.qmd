@@ -370,247 +370,64 @@ dbconn <- DBI::dbConnect(duckdb::duckdb())
 duckdb::duckdb_register_arrow(dbconn,
                               "trip_data",
                               tripset)
+```
 
-sql_countRiders <- paste0(
-    "SELECT COUNT(*) AS 'Distinct Riders' ",
-    "FROM (",
-    "SELECT DISTINCT ride_id ",
-    "FROM trip_data)"
+```{sql, connection = dbconn, output.var = "sql-Riders_monthly"}
+
+SELECT 
+    month,
+    COUNT(member_casual) AS Rider_count 
+FROM 
+    trip_data 
+GROUP BY 
+    month 
+ORDER BY 
+    month
+```
+
+```{r}
+
+
+sql-bikeType_count <- paste0(
+    "SELECT 
+        rideable_type, count() AS 'rt_counts' ",
+    "FROM 
+        trip_data ",
+    "GROUP BY 
+        rideable_type ",
+    "ORDER BY 
+        rt_counts"
 )
 
-qres_countRiders <- duckdb::dbSendQuery(conn = dbconn,
-                                        statement = sql_countRiders)
 
-fetch_countRiders <- duckdb::dbFetch(qres_countRiders)
+queryResult <- duckdb::dbSendQuery(conn = dbconn,
+                                   statement = sql - bikeType_count)
 
-fetch_countRiders
-
-duckdb::dbClearResult(qres_countRiders)
-```
-
-```{r}
-
-# Makes formatting simpler for SQL syntax
-sql_selectHead <- paste0("SELECT(*) ",
-                         "FROM trip_data ",
-                         "LIMIT 10")
-
-# Query result variable
-qres_selectHead <- duckdb::dbSendQuery(conn = dbconn,
-                                       sql_selectHead)
-# Results of query in the form of a dataframe
-duckdb::dbFetch(qres_selectHead)
-# To save on overall memory overhead
-duckdb::dbClearResult(qres_selectHead)
-```
-
-```{r}
-
-count_ridetypes <- dplyr::tbl(dbconn, 
-                            "trip_data") |>
-    dplyr::select(rideable_type) |>
-    dplyr::group_by(rideable_type) |>
-    dplyr::summarize(type_count = count(), 
-                     .groups = "keep") |>
-    dplyr::arrange(type_count) |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-
-count_ridetypes
-```
-
-```{r}
-
-#or this
-sql_ridetypeCounts <- paste0(
-    "SELECT rideable_type, count() AS 'rt_counts' ",
-    "FROM trip_data ",
-    "GROUP BY rideable_type ",
-    "ORDER BY rt_counts"
-)
-
-qres_ridetypeCounts <- duckdb::dbSendQuery(conn = dbconn,
-                                           statement = sql_ridetypeCounts
- )
-
-fres_rideTypeCounts <- duckdb::dbFetch(qres_ridetypeCounts)
-
-duckdb::dbClearResult(qres_ridetypeCounts)
-
-fres_rideTypeCounts |>
-    ggplot2::ggplot(data = fres_rideTypeCounts,
-                           mapping = ggplot2::aes(
-                               x = (reorder(
-                                   rideable_type,
-                                   rt_counts)), 
-                               y = rt_counts,
-                               fill = rt_counts)) +
-    ggplot2::labs(x = "Ride Types",
+duckdb::dbFetch(queryResult) |>
+    ggplot2::ggplot() +
+    
+    ggplot2::geom_col(aes(
+        x = reorder(rideable_type,
+                    rt_counts)),
+        y = rt_counts,
+        fill = r,
+        color = "black",
+        linewidth = 0.2,
+        show.legend = FALSE) +
+    
+    ggplot2::labs(title = "Rental Count - by Type",
+                  subtitle = "(Jan-Dec, 2023)",
+                  caption = "Data from cyclistic database.",
+                  tag = "Figure 1.a",
+                  x = "Ride Types",
                   y = "Count") +
-    ggplot2::geom_col() +
+    
     ggplot2::theme_dark() +
+    
     ggplot2::scale_fill_distiller(palette = "Spectral",
                                   direction = 1)
-```
 
-```{r}
-
-dplyr::tbl(dbconn, 
-           "trip_data") |>
-    dplyr::select(start_station_id) |>
-    dplyr::group_by(start_station_id) |>
-    dplyr::summarize(StationCount = count()) |>
-    dplyr::arrange(StationCount,
-                   start_station_id) |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-```
-
-```{sql, connection = dbconn, output.var = "Distinct"}
-
-SELECT COUNT 
-    (DISTINCT ride_id) AS "Distinct Obs"
-FROM
-    trip_data
-```
-
-```{sql, connection = dbconn, output.var = "MonthlyAVG"}
-
-SELECT AVG(RidesPerMonth) AS "MonthlyAVG"
-FROM (
-  SELECT MonthNum, COUNT() AS RidesPerMonth
-  FROM (
-    SELECT
-      trip_data.*,
-      EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM trip_data
-  )
-  GROUP BY MonthNum
-)
-```
-
-```{sql, connection = dbconn, output.var = "sql_counts_month_rides"}
-
-SELECT month, COUNT(member_casual) AS Rider_count
-FROM trip_data
-GROUP BY month
-ORDER BY month
-```
-
-```{sql, connection = dbconn, output.var = "sql_avg_month_rides"}
-
-SELECT AVG(RidesPerMonth) AS "MonthlyAVG"
-FROM (
-  SELECT MonthNum, COUNT() AS RidesPerMonth
-  FROM (
-    SELECT
-      trip_data.*,
-      EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM trip_data
-  )
-  GROUP BY MonthNum
-)
-```
-
-```{sql, connection = dbconn, output.var = "sql_counts_month_casual"}
-
-SELECT MonthNum, COUNT(member_casual) AS Casuals
-FROM (
-  SELECT
-    started_at,
-    member_casual,
-    EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM trip_data
-  WHERE (member_casual = 'casual')
-)
-GROUP BY MonthNum
-```
-
-```{sql, connection = dbconn, output.var = "sql_AVG_casual"}
-
-SELECT AVG(Casuals) AS AvgCasuals
-FROM (
-  SELECT MonthNum, COUNT() AS Casuals
-  FROM (
-    SELECT
-      started_at,
-      member_casual,
-      EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-    FROM trip_data
-    WHERE (member_casual = 'casual')
-  )
-  GROUP BY MonthNum
-)
-```
-
-```{sql, connection = dbconn, output.var = "sql_counts_month_casual_e"}
-
-SELECT MonthNum, COUNT(member_casual) AS CasualsOnElectric
-FROM (
-  SELECT
-    started_at,
-    member_casual,
-    rideable_type,
-    EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM trip_data
-  WHERE (member_casual = 'casual') AND (rideable_type = 'electric_bike')
-)
-GROUP BY MonthNum
-```
-
-```{sql, connection = dbconn}
-
-CREATE TABLE tbl_eMembers AS
-SELECT MonthNum, COUNT(member_casual) AS MembersOnElectric
-FROM (
-  SELECT
-    started_at,
-    member_casual,
-    rideable_type,
-    EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM trip_data
-  WHERE (member_casual = 'member') AND (rideable_type = 'electric_bike')
-)
-GROUP BY MonthNum
-```
-
-```{sql, connection = dbconn}
-
-CREATE TABLE tbl_eCasuals AS 
-SELECT MonthNum, COUNT(member_casual) AS CasualsOnElectric
-FROM (
-  SELECT
-    started_at,
-    member_casual,
-    rideable_type,
-    EXTRACT(MONTH FROM CAST(started_at AS TIMESTAMP)) AS MonthNum
-  FROM trip_data
-  WHERE (member_casual = 'casual') AND (rideable_type = 'electric_bike')
-)
-GROUP BY MonthNum
-```
-
-```{r}
-
-duckdb::duckdb_list_arrow(dbconn)
-    
-duckdb::dbListTables(dbconn)
-    
-dplyr::tbl(dbconn, 
-           "tbl_eCasuals") |>
-        dplyr::select_all()
-    
-dplyr::tbl(dbconn, 
-           "tbl_eMembers") |>
-    dplyr::select_all()
-```
-
-```{sql, connection = dbconn}
-
-SELECT tbl_eMembers.*, CasualsOnElectric
-FROM tbl_eMembers
-LEFT JOIN tbl_eCasuals
-  ON (tbl_eMembers.MonthNum = tbl_eCasuals.MonthNum)
+duckdb::dbClearResult(queryResult)
 ```
 
 # Tables in DDB
@@ -765,7 +582,7 @@ Exploratory data analysis:
 
     -   Facet graphs
 
-    -   Scatterplot with line of fit
+    -   Scatter-plot with line of fit
 
         -   determine if trends are linear or nonlinear
 
