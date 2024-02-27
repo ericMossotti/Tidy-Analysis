@@ -497,54 +497,6 @@ GROUP BY month
 ORDER BY month
 ```
 
-# Statistics
-
-Numerical stats:
-
--   continuous and discrete data
-
-    -   time series scatter plots
-
-        -   color points by rider type
-
-        -   color points by bike type
-
-        -   independent variables = month/day of week/hour of day
-
-        -   dependent variables = rider counts
-
-    -   Type 1 Error rate of hypothesis tests
-
-        -   risk of rejecting the null hypothesis if the null hypothesis is true
-
-        -   compute p-values
-
-            -   t.test()
-
-            -   perm.t.test()
-
-            -   wilcox.t.test()
-
--   Categorical data
-
-    -   
-
-Paired-Samples T-Test (Dependent-Samples T-Test):
-
-Pretest-Posttest Design with One Group:
-
--   Generate random numbers,
-
--   Perform simulations to assess the performance of statistical methods,
-
--   Perform hypothesis tests,
-
--   Compute confidence intervals,
-
--   Make sample size computations,
-
--   Report statistical results.
-
 ```{sql, connection = dbconn, output.var = "sql_avg_month_rides"}
 
 SELECT AVG(RidesPerMonth) AS "MonthlyAVG"
@@ -661,7 +613,7 @@ LEFT JOIN tbl_eCasuals
   ON (tbl_eMembers.MonthNum = tbl_eCasuals.MonthNum)
 ```
 
-### One Big Table
+# Tables in DDB
 
 ```{r}
 
@@ -790,3 +742,33 @@ dplyr::tbl(dbconn,
     dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annual_classicBikers"))
 ```
+
+# Statistics
+
+We don't need to apply statistical inference techniques such as random sampling since we already have the complete population data.
+
+Exploratory data analysis:
+
+-   Counts of grouped data
+
+    -   Dodged bar chart (member vs casual?)
+
+-   Median
+
+    -   Comparing medians between groups (trip_time, hour, weekday?)
+
+        -   Histogram
+
+            -   data densities
+
+                -   area plots
+
+    -   Facet graphs
+
+    -   Scatterplot with line of fit
+
+        -   determine if trends are linear or nonlinear
+
+-   Modality
+
+    -   Is it uni, bi, or multi?
