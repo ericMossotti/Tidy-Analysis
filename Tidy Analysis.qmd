@@ -110,17 +110,18 @@ tripTibble <- tripTibble |>
 
 ```{r}
 
-tripTibble <- tripTibble |>
-    dplyr::mutate("trip_time" =
-                         lubridate::time_length(
-                             lubridate::interval(started_at,
-                                                 ended_at),
-                             unit = "minute"),
-                  .keep = "all")
+tripTibble |>
+    dplyr::mutate(
+        "trip_time" =
+            lubridate::time_length(lubridate::interval(started_at,
+                                                       ended_at),
+                                   unit = "minute"),
+        .keep = "all"
+    ) |>
+    arrow::write_dataset("tempFiles",
+                         existing_data_behavior = "delete")
 
-
-tripTibble |> arrow::write_dataset("tempFiles",
-                                   existing_data_behavior = "delete")
+rm(tripTibble)
 
 fileList <- list.files(path = "tempFiles",
                               full.names = TRUE,
@@ -163,18 +164,18 @@ tripset |> arrow::write_dataset(path = "tripdata",
                                 format = "parquet",
                                 existing_data_behavior = "delete")
 
+unlink("tempFiles", recursive = TRUE)
+
 tripset <- arrow::open_dataset(sources = "tripdata",
                               format = "parquet")
 
-unlink("tempFiles",
-       recursive = TRUE)
 
-# Wanted to verify where the extracted data is at. 
+# To verify the location of the extracted data.
 fileList <- list.files(path = "tripdata",
                               full.names = TRUE,
                               recursive = TRUE)
 
-cat("Files in /tripdata: ",
+cat("Files in ~/tripdata: ",
     "\n\n",
     fileList)
 ```
@@ -197,9 +198,7 @@ dupeTable <- tripset |>
     dplyr::ungroup() |>
     dplyr::arrange(started_at) |>
     arrow::to_arrow() |>
-    dplyr::collect() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
+    dplyr::collect()
 ```
 
 We started with 5,719,877 observations (obs) for dates spanning January to December, 2023, then removed 1,388,170 incomplete obs.
@@ -237,9 +236,7 @@ undupedTable <- dupeTable |>
                      end_station_name,
                      .keep_all = TRUE) |>
     arrow::to_arrow() |>
-    dplyr::collect() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble()
+    dplyr::collect()
 
 n <- undupedTable |>
     dplyr::select(started_at) |>
@@ -261,8 +258,6 @@ incorrectDistinct <- tripset |>
     dplyr::count(name = "Incorrect Distinct Observations") |>
     arrow::to_arrow() |>
     dplyr::collect() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble() |>
     as.integer()
 
 correctDistinct <- tripset |>
@@ -278,8 +273,6 @@ correctDistinct <- tripset |>
     dplyr::count() |>
     arrow::to_arrow() |>
     dplyr::collect() |>
-    arrow::as_arrow_array() |>
-    tibble::as_tibble() |>
     as.integer()
 
 correctionTibble <-
@@ -305,11 +298,9 @@ tripset |>
                     ended_at,
                     end_station_name, 
                     .keep_all = TRUE) |>
+    dplyr::arrange(started_at) |>
     arrow::to_arrow() |>
-    dplyr::arrange() |>
     dplyr::collect() |>
-    #arrow::as_arrow_array() |>
-    #tibble::as_tibble() |>
     arrow::write_dataset(
         path = "tripdata",
         format = "parquet",
@@ -415,20 +406,27 @@ duckdb::dbClearResult(qres_selectHead)
 
 ```{r}
 
-rCounts_types <- dplyr::tbl(dbconn, 
+count_ridetypes <- dplyr::tbl(dbconn, 
                             "trip_data") |>
+    dplyr::select(rideable_type) |>
     dplyr::group_by(rideable_type) |>
-    dplyr::summarize(rideTypecount = count(), .groups = "keep")
+    dplyr::summarize(type_count = count(), 
+                     .groups = "keep") |>
+    dplyr::arrange(type_count) |>
+    arrow::to_arrow() |>
+    dplyr::collect()
 
-rCounts_types
+count_ridetypes
 ```
 
 ```{r}
+
 #or this
 sql_ridetypeCounts <- paste0(
     "SELECT rideable_type, count() AS 'rt_counts' ",
     "FROM trip_data ",
-    "GROUP BY rideable_type"
+    "GROUP BY rideable_type ",
+    "ORDER BY rt_counts"
 )
 
 qres_ridetypeCounts <- duckdb::dbSendQuery(conn = dbconn,
@@ -436,32 +434,36 @@ qres_ridetypeCounts <- duckdb::dbSendQuery(conn = dbconn,
  )
 
 fres_rideTypeCounts <- duckdb::dbFetch(qres_ridetypeCounts)
-#duckdb::dbClearResult(qres_ridetypeCounts)
 
-fres_rideTypeCounts
-```
+duckdb::dbClearResult(qres_ridetypeCounts)
 
-```{r}
-
-fres_rideTypeCounts
-dplyr::glimpse(fres_rideTypeCounts)
-
-newPlot <- ggplot2::ggplot(data = fres_rideTypeCounts,
+fres_rideTypeCounts |>
+    ggplot2::ggplot(data = fres_rideTypeCounts,
                            mapping = ggplot2::aes(
-                               x = rideable_type,
-                               y = rt_counts)) +
-    ggplot2::geom_col(fill = "red")
-
-newPlot
+                               x = (reorder(
+                                   rideable_type,
+                                   rt_counts)), 
+                               y = rt_counts,
+                               fill = rt_counts)) +
+    ggplot2::labs(x = "Ride Types",
+                  y = "Count") +
+    ggplot2::geom_col() +
+    ggplot2::theme_dark() +
+    ggplot2::scale_fill_distiller(palette = "Spectral",
+                                  direction = 1)
 ```
 
 ```{r}
 
 dplyr::tbl(dbconn, 
            "trip_data") |>
+    dplyr::select(start_station_id) |>
     dplyr::group_by(start_station_id) |>
     dplyr::summarize(StationCount = count()) |>
-    dplyr::arrange(StationCount, start_station_id)
+    dplyr::arrange(StationCount,
+                   start_station_id) |>
+    arrow::to_arrow() |>
+    dplyr::collect()
 ```
 
 ```{sql, connection = dbconn, output.var = "Distinct"}
@@ -556,11 +558,6 @@ FROM (
   )
   GROUP BY MonthNum
 )
-```
-
-```{r}
-
-cat(stringr::str_c(as.integer(MonthlyAVG)))
 ```
 
 ```{sql, connection = dbconn, output.var = "sql_counts_month_casual"}
@@ -675,9 +672,9 @@ dplyr::tbl(dbconn,
         lubridate::as_datetime(started_at))) |>
     dplyr::summarize(RidesPerMonth = count()) |>
     dplyr::arrange(MonthNum) |>
-    as.data.frame() |>
+    dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
-                         name = "Counts_By_Month")
+                         name = "Riders_monthly")
 
 dplyr::tbl(dbconn,
            "trip_data") |>
@@ -687,9 +684,9 @@ dplyr::tbl(dbconn,
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "casual") |>
     dplyr::summarize(Casuals = count(member_casual)) |>
-    as.data.frame() |>
+    dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
-                         name = "Counts_By_Month_Casuals")
+                         name = "Casuals_monthly")
 
 dplyr::tbl(dbconn,
            "trip_data") |>
@@ -698,9 +695,9 @@ dplyr::tbl(dbconn,
         lubridate::as_datetime(started_at))) |>
     dplyr::filter(member_casual == "member") |>
     dplyr::summarize(Annuals = count(member_casual)) |>
-    as.data.frame() |>
+    dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
-                         name = "Counts_By_Month_Annuals")
+                         name = "Members_monthly")
 
 dplyr::tbl(dbconn,
            "trip_data") |>
@@ -712,9 +709,9 @@ dplyr::tbl(dbconn,
     dplyr::filter(member_casual == "casual",
                   rideable_type == "electric_bike") |>
     dplyr::summarize(Casual_eBikers = count(member_casual)) |>
-    as.data.frame() |>
+    dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
-                         name = "Counts_By_Month_Casual_eBikers")
+                         name = "Casual-eBikers_monthly")
 
 dplyr::tbl(dbconn,
            "trip_data") |>
@@ -726,9 +723,9 @@ dplyr::tbl(dbconn,
     dplyr::filter(member_casual == "member",
                   rideable_type == "electric_bike") |>
     dplyr::summarize(Annual_eBikers = count(member_casual)) |>
-    as.data.frame() |>
+    dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
-                         name = "Counts_By_Month_Annual_eBikers")
+                         name = "Member-eBikers_monthly")
 
 dplyr::tbl(dbconn,
            "trip_data") |>
@@ -740,10 +737,10 @@ dplyr::tbl(dbconn,
     dplyr::filter(member_casual == "member",
                   rideable_type == "classic_bike") |>
     dplyr::summarize(Annual_classicBikers = count(member_casual)) |>
-    as.data.frame() |>
+    dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = 
-                             "Counts_By_Month_Annual_classicBikers")
+                             "Member-cBikers_monthly")
 
 dplyr::tbl(dbconn,
            "trip_data") |>
@@ -755,45 +752,25 @@ dplyr::tbl(dbconn,
     dplyr::filter(member_casual == "casual",
                   rideable_type == "classic_bike") |>
     dplyr::summarize(casual_classicBikers = count(member_casual)) |>
-    as.data.frame() |>
+    dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = 
-                             "Counts_By_Month_Casual_classicBikers")
+                             "Casual-cBikers_monthly")
 ```
 
 ```{r}
 
-dplyr::tbl(dbconn, 
-           "Counts_By_Month") |>
-    tibble::view(n = 12)
+# a chunk for easily dropping either all (default) or specific tables from the ddb 
 
-dplyr::tbl(dbconn, 
-           "Counts_By_Month_Casuals") |>
-    tibble::view(n = 12)
+paths <- duckdb::dbListTables(dbconn)
 
-dplyr::tbl(dbconn, 
-           "Counts_By_Month_Annuals") |>
-    tibble::view(n = 12)
+drops_tables <- function(path) {
+    
+    duckdb::dbRemoveTable(dbconn, 
+                          path)
+}
 
-dplyr::tbl(dbconn, 
-           "Counts_By_Month_Casual_eBikers") |>
-    tibble::view(n = 12)
-
-           "Counts_By_Month_Annual_eBikers") |>
-    tibble::view(n = 12)
-
-dplyr::tbl(dbconn, 
-           "Counts_By_Month_Annual_classicBikers") |>
-    tibble::view(n = 12)
-
-dplyr::tbl(dbconn, 
-           "Counts_By_Month_Casual_classicBikers") |>
-    tibble::view(n = 12)
-```
-
-```{r}
-
-duckdb::dbListTables(dbconn)
+paths[] |> purrr::walk(drops_tables)
 ```
 
 ```{r}
@@ -813,9 +790,3 @@ dplyr::tbl(dbconn,
     dplyr::left_join(y = dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annual_classicBikers"))
 ```
-
-| Col1 | Col2 | Col3 |
-|------|------|------|
-|      |      |      |
-|      |      |      |
-|      |      |      |
