@@ -13,6 +13,9 @@ toc: true
 #### Future Plans:
 
 -   [Use Quarto Pub for project deployment](https://quarto.org/docs/publishing/quarto-pub.html)
+-   Observable JS
+    -   Arquero
+    -   Observable Plot
 
 #### References:
 
@@ -26,13 +29,13 @@ knitr::opts_chunk$set(message = FALSE,
                       warning = FALSE)
 ```
 
-# Overview
+### Overview
 
 The dataset is immense with millions of observations from just a single year. It seems to be regularly updated with more data, interestingly enough, despite being simulated.
 
 This doesn't require much domain knowledge to understand, but it is realistic (with errors) and challenging enough for data analysis.
 
-## Data Import
+## Data Import and Cleaning
 
 .ZIP files are commonplace as they reduce long term storage requirements. There may already be a function that does this but it seemed a custom function was needed to unzip and relocate .CSV's to a separate folder. The .ZIP files folder deleted from the working directory after relocating files to save on overhead.
 
@@ -290,6 +293,10 @@ The incorrect number of observations (nobs) was 4,331,707. The correct nobs afte
 
 ```{r}
 
+dplyr::tbl(dbconn,
+           "trip_data") |>
+    colnames()
+
 tripset |>
     dplyr::select(ride_id:hour) |>
     arrow::to_duckdb() |>
@@ -307,8 +314,22 @@ tripset |>
         existing_data_behavior = "overwrite"
     )
 
+
+```
+
+# TESTING SECTION
+
+```{r}
+
 tripset <- arrow::open_dataset(sources = "tripdata",
                                format = "parquet")
+
+dbconn <- DBI::dbConnect(duckdb::duckdb())
+
+# For querying the arrow dataset with the benefits of an OLAP database. 
+duckdb::duckdb_register_arrow(dbconn,
+                              "trip_data",
+                              tripset)
 ```
 
 ```{r}
@@ -358,20 +379,6 @@ removes_oneDecimalNum <- tripset |>
 
 It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
 
-# TESTING SECTION
-
-## SQL Queries
-
-```{r}
-
-dbconn <- DBI::dbConnect(duckdb::duckdb())
-
-# For querying the arrow dataset with the benefits of an OLAP database. 
-duckdb::duckdb_register_arrow(dbconn,
-                              "trip_data",
-                              tripset)
-```
-
 ```{sql, connection = dbconn, output.var = "riders_monthly"}
 
 SELECT 
@@ -387,32 +394,20 @@ ORDER BY
 
 ```{r}
 
-# if i wanted to display large numbers with commas and months as names
-riders_monthly |>
-    dplyr::mutate(month = month.abb,
-                 rider_count = format(
-                      rider_count,
-                      big.mark = ","
-                      )) |>
+# Making the data a little more visual.
+riders_monthly <- riders_monthly |>
+    dplyr::mutate(month = month.abb) |>
     dplyr::arrange(rider_count) |>
     dplyr::rename("Month" = month,
                   "Riders" = rider_count) 
-```
 
-```{r}
-
-```
-
-```{r}
-
-p <- ggplot2::ggplot(riders_monthly,
-                     ggplot2::aes(x = reorder(month, rider_count),
-                                  y = rider_count,
-                                  fill = rider_count)) +
+ggplot2::ggplot(riders_monthly,
+                     ggplot2::aes(x = reorder(Month, Riders),
+                                  y = Riders,
+                                  fill = Riders)) +
     ggplot2::geom_col(color = 'black') +
     ggplot2::scale_y_continuous(
         labels = scales::label_comma(big.mark = ",")) +
-    #ggplot2::coord_flip() +
     ggplot2::scale_fill_viridis_b() +
     ggplot2::labs(
         title = "Rider Counts - Monthly",
@@ -422,13 +417,11 @@ p <- ggplot2::ggplot(riders_monthly,
         x = "Month (Jan - Dec)",
         y = "Riders"
     )
-p
 ```
 
 ```{r}
 
-
-bikeType_count <- paste0(
+sqlText <- paste0(
     "SELECT 
         rideable_type, count() AS 'rt_counts' ",
     "FROM 
@@ -439,19 +432,20 @@ bikeType_count <- paste0(
         rt_counts"
 )
 
-
 queryResult <- duckdb::dbSendQuery(conn = dbconn,
-                                   statement = bikeType_count)
+                                   statement = sqlText)
 
 fetchedRes <- duckdb::dbFetch(queryResult)
 
-fetchedRes
-
-p1 <- ggplot2::ggplot(data = fetchedRes) +
-    ggplot2::geom_col(mapping = ggplot2::aes(x = reorder(rideable_type,
-                                                         rt_counts),
-                                             y = rt_counts,
-                                             fill = rt_counts)) +
+ggplot2::ggplot(data = fetchedRes) +
+    ggplot2::geom_col(mapping = ggplot2::aes(
+        x = reorder(rideable_type,
+                    rt_counts),
+        y = rt_counts,
+        fill = rt_counts
+    )) +
+    ggplot2::scale_y_continuous(
+        labels = scales::label_comma(big.mark = ",")) +
     ggplot2::scale_fill_distiller(palette = "Spectral",
                                   direction = -1) +
     ggplot2::labs(
@@ -462,17 +456,85 @@ p1 <- ggplot2::ggplot(data = fetchedRes) +
         x = "Ride Types",
         y = "Count"
     )
-
-p1
-
-duckdb::dbClearResult(queryResult)
 ```
 
-# Tables in DDB
+## DuckDB Table Writing
 
 ```{r}
 
-# Create monthly count summary tables to be joined
+dplyr::tbl(dbconn,
+           "trip_data") |>
+    colnames() |>
+    as.matrix()
+```
+
+noting it was useful for me to retain certain rows at first to determine if there were duplicates. later on, i would not necessarily retain them, though.
+
+**Relationships to Explore:**
+
+month2type\
+month2member
+
+```{r}
+
+# Summarizing the monthly membership status of riders in a joined table 
+
+dplyr::tbl(dbconn,
+           "trip_data") |>
+    dplyr::select(month, member_casual) |>
+    dplyr::group_by("Month" = month) |>
+    dplyr::filter(member_casual == "casual") |>
+    dplyr::summarize("Casuals" = count(member_casual)) |>
+    dplyr::collect() |>
+    duckdb::dbWriteTable(conn = dbconn,
+                         name = "Monthly Memberships")
+
+dplyr::tbl(dbconn,
+           "trip_data") |>
+    dplyr::select(month, member_casual) |>
+    dplyr::group_by("Month" = month) |>
+    dplyr::filter(member_casual == "member") |>
+    dplyr::summarize("Annual Memberships" = count(member_casual)) |>
+    dplyr::collect() |>
+    duckdb::dbWriteTable(conn = dbconn,
+                         name = "annualMemberships")
+
+dplyr::tbl(dbconn,
+           "Monthly Memberships") |>
+        dplyr::left_join(y = dplyr::tbl(dbconn,
+                                    "annualMemberships")) 
+
+duckdb::dbRemoveTable(dbconn,
+                      "annualMemberships")
+
+duckdb::dbListTables(dbconn)
+
+dplyr::tbl(dbconn,
+           "Monthly Memberships") |>
+    as.data.frame() |>
+    tibble::view()
+```
+
+day2type\
+day2member
+
+hour2type\
+hour2member
+
+triptime2type\
+triptime2member
+
+triptime2distance
+
+start_station_name2member\
+start_station_name2type
+
+end_station_name2member\
+end_station_name2type
+
+```{r}
+
+
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::group_by(MonthNum = lubridate::month(
@@ -598,7 +660,7 @@ dplyr::tbl(dbconn,
                                     "Counts_By_Month_Annual_classicBikers"))
 ```
 
-# Statistics
+## Statistics
 
 We don't need to apply statistical inference techniques such as random sampling since we already have the complete population data.
 
@@ -607,6 +669,7 @@ Exploratory data analysis:
 -   Counts of grouped data
 
     -   Dodged bar chart (member vs casual?)
+    -   One graph for each variable-group, faceted
 
 -   Median
 
