@@ -172,7 +172,6 @@ unlink("tempFiles", recursive = TRUE)
 tripset <- arrow::open_dataset(sources = "tripdata",
                               format = "parquet")
 
-
 # To verify the location of the extracted data.
 fileList <- list.files(path = "tripdata",
                               full.names = TRUE,
@@ -313,9 +312,11 @@ tripset |>
         format = "parquet",
         existing_data_behavior = "overwrite"
     )
-
-
 ```
+
+Noting that it was useful for me to retain certain rows at first to determine if there were duplicates.
+
+## 
 
 # TESTING SECTION
 
@@ -466,225 +467,66 @@ dplyr::tbl(dbconn,
            "trip_data") |>
     colnames() |>
     as.matrix()
-```
-
-noting it was useful for me to retain certain rows at first to determine if there were duplicates. later on, i would not necessarily retain them, though.
-
-**Relationships to Explore:**
-
-month2type\
-month2member
-
-creates monthly counts for userTypes
-
-```{r}
-
-# Summarizing the monthly membership status of riders in a joined table 
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(month, member_casual) |>
-    dplyr::group_by("Month" = month) |>
-    dplyr::filter(member_casual == "casual") |>
-    dplyr::summarize("Casuals" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "casualUsers_monthly")
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(month, member_casual) |>
-    dplyr::group_by("Month" = month) |>
-    dplyr::filter(member_casual == "member") |>
-    dplyr::summarize("Annual Memberships" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "annualMembers_monthly")
-
-dplyr::tbl(dbconn,
-           "casualUsers_monthly ") |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "annualMembers_monthly")) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "monthly_userTypes")    
-
-duckdb::dbRemoveTable(dbconn,
-                      "casualUsers_monthly")
-
-duckdb::dbListTables(dbconn)
-
-dplyr::tbl(dbconn,
-           "monthly_userTypes") |>
-    tibble::view()
-```
-
-creates day of week counts for member type
-
-```{r}
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(weekday, member_casual) |>
-    dplyr::group_by(weekday) |>
-    dplyr::filter(member_casual == "casual") |>
-    dplyr::summarize("Casuals" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "casualUsers_dayofweek")
-
-dplyr::tbl(dbconn, "casualUsers_dayofweek")
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(weekday, member_casual) |>
-    dplyr::group_by(weekday) |>
-    dplyr::filter(member_casual == "member") |>
-    dplyr::summarize("Annual Members" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "annualMembers_dayOfWeek")
-
-dplyr::tbl(dbconn, "annualMembers_dayOfWeek")
-
-dplyr::tbl(dbconn,
-           "casualUsers_dayofweek") |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "annualMembers_dayOfWeek")) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "DayOfWeek_UserTypes")    
-
-dplyr::tbl(dbconn, "DayOfWeek_UserTypes")
-```
-
-hour2type\
-hour2member
-
-```{r}
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(hour, member_casual) |>
-    dplyr::group_by(hour) |>
-    dplyr::filter(member_casual == "casual") |>
-    dplyr::summarize("Casuals_byHour" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "casuals_byHour")
-
-dplyr::tbl(dbconn, "casuals_byHour")
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(hour, member_casual) |>
-    dplyr::group_by(hour) |>
-    dplyr::filter(member_casual == "member") |>
-    dplyr::summarize("Members_byHour" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "members_byHour")
-
-dplyr::tbl(dbconn, "members_byHour")
-
-dplyr::tbl(dbconn,
-           "casuals_byHour") |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "members_byHour")) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "userStatus_byHour")    
-
-dplyr::tbl(dbconn, "userStatus_byHour")
-```
-
-casual2ebike\
-member2ebike
-
-```{r}
 
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(month,
-                  member_casual,
-                  rideable_type) |>
-    dplyr::group_by(month) |>
-    dplyr::filter(member_casual == "casual",
-                  rideable_type == "electric_bike") |>
-    dplyr::summarize("casual_eBikers" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "casual_eBikers_monthly")
+                  hour,
+                  weekday,
+                  member_casual) |>
+    dplyr::group_by(month,
+                    weekday,
+                    hour) |>
+    dplyr::filter(member_casual == "member") |>
+    dplyr::summarize("members" = n()) |>
+    dplyr::arrange(month,
+                   weekday,
+                   hour)
+```
 
-dplyr::tbl(dbconn, "casual_eBikers_monthly")
+## TIME TABLE - COMPREHENSIVE
+
+```{r}
+
+##### more comprehense, potentially saving hundreds of lines of code
 
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(month,
-                  member_casual,
-                  rideable_type) |>
-    dplyr::group_by(month) |>
-    dplyr::filter(member_casual == "member",
-                  rideable_type == "electric_bike") |>
-    dplyr::summarize("member_eBikers" = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "member_eBikers_monthly")
-
-dplyr::tbl(dbconn, "member_eBikers_monthly")
-
-
-dplyr::tbl(dbconn,
-           "casual_eBikers_monthly") |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "member_eBikers_monthly")) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "rider_status_monthly")
-
-dplyr::tbl(dbconn, "eBike_memberStatus_monthly")
+                  hour,
+                  weekday,
+                  rideable_type,
+                  member_casual) |>
+    dplyr::group_by(month,
+                    weekday,
+                    hour,
+                    rideable_type,
+                    member_casual) |> 
+    dplyr::summarize("memberType" = dplyr::count(member_casual)) |>
+    dplyr::arrange(month,
+                   weekday,
+                   hour)
 ```
-
-triptime2distance
 
 start_station_name2member\
 start_station_name2type
 
-end_station_name2member\
-end_station_name2type
-
 ```{r}
 
 dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(started_at,
-                  member_casual,
-                  rideable_type) |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::filter(member_casual == "member",
-                  rideable_type == "classic_bike") |>
-    dplyr::summarize(Annual_classicBikers = count(member_casual)) |>
+           "") |>
+    dplyr::left_join(y = dplyr::tbl(dbconn,
+                                    "")) |>
     dplyr::collect() |>
     duckdb::dbWriteTable(conn = dbconn,
-                         name = 
-                             "Member-cBikers_monthly")
+                         name = "")
 
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    dplyr::select(started_at,
-                  member_casual,
-                  rideable_type) |>
-    dplyr::group_by(MonthNum = lubridate::month(
-        lubridate::as_datetime(started_at))) |>
-    dplyr::filter(member_casual == "casual",
-                  rideable_type == "classic_bike") |>
-    dplyr::summarize(casual_classicBikers = count(member_casual)) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = 
-                             "Casual-cBikers_monthly")
+dplyr::tbl(dbconn, "")
+duckdb::dbListTables(dbconn)
 ```
+
+end_station_name2member\
+end_station_name2type
 
 ```{r}
 
@@ -700,25 +542,25 @@ drops_tables <- function(path) {
                           path)
 }
 
-paths[c()] |> purrr::walk(drops_tables)
+paths[] |> purrr::walk(drops_tables)
+
+paths <- duckdb::dbListTables(dbconn)
+
+paths[]
 ```
 
 ```{r}
 
 dplyr::tbl(dbconn,
-           "Counts_By_Month") |>
+           "") |>
     dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "Counts_By_Month_Casuals")) |>
+                                    "")) |>
     dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "Counts_By_Month_Annuals")) |>
+                                    "")) |>
     dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "Counts_By_Month_Casual_eBikers")) |>
+                                    "")) |>
     dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "Counts_By_Month_Annual_eBikers")) |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "Counts_By_Month_Casual_classicBikers"))  |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "Counts_By_Month_Annual_classicBikers"))
+                                    ""))
 ```
 
 ## Statistics
