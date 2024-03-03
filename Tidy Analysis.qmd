@@ -23,6 +23,8 @@ toc: true
 
 -   [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
+-   <https://en.wikipedia.org/wiki/Great-circle_distance>
+
 ```{r include = FALSE}
 
 knitr::opts_chunk$set(message = FALSE, 
@@ -141,7 +143,8 @@ tripset <- arrow::open_dataset(sources = fileList[1],
                                format = "parquet") |>
     dplyr::group_by(month = lubridate::month(started_at),
                     weekday = lubridate::wday(started_at),
-                    hour = lubridate::hour(started_at)) |>
+                    hour = lubridate::hour(started_at),
+                    minute = lubridate::minute(started_at)) |>
     dplyr::select(
         ride_id,
         rideable_type,
@@ -159,9 +162,17 @@ tripset <- arrow::open_dataset(sources = fileList[1],
         trip_time,
         month,
         weekday,
-        hour
+        hour,
+        minute
     ) |>
    dplyr::ungroup()
+
+
+tripset |>
+    arrow::to_duckdb() |>
+    dplyr::collect() |>
+    colnames() |>
+    as.matrix()
 
 tripset |> arrow::write_dataset(path = "tripdata",
                                 format = "parquet",
@@ -172,6 +183,11 @@ unlink("tempFiles", recursive = TRUE)
 tripset <- arrow::open_dataset(sources = "tripdata",
                               format = "parquet")
 
+tripset |>
+    arrow::to_duckdb() |>
+    dplyr::collect() |>
+    colnames() |>
+    as.matrix()
 # To verify the location of the extracted data.
 fileList <- list.files(path = "tripdata",
                               full.names = TRUE,
@@ -292,12 +308,8 @@ The incorrect number of observations (nobs) was 4,331,707. The correct nobs afte
 
 ```{r}
 
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    colnames()
-
 tripset |>
-    dplyr::select(ride_id:hour) |>
+    dplyr::select(ride_id:minute) |>
     arrow::to_duckdb() |>
     dplyr::distinct(started_at, 
                     start_station_name, 
@@ -331,6 +343,12 @@ dbconn <- DBI::dbConnect(duckdb::duckdb())
 duckdb::duckdb_register_arrow(dbconn,
                               "trip_data",
                               tripset)
+
+
+dplyr::tbl(dbconn,
+           "trip_data") |>
+    colnames() |>
+    as.matrix()
 ```
 
 ```{r}
@@ -467,49 +485,86 @@ dplyr::tbl(dbconn,
            "trip_data") |>
     colnames() |>
     as.matrix()
+```
 
+```{r}
+
+# counting the rider status for trip times 
 dplyr::tbl(dbconn,
            "trip_data") |>
-    dplyr::select(month,
-                  hour,
-                  weekday,
+    dplyr::select(trip_time,
                   member_casual) |>
-    dplyr::group_by(month,
-                    weekday,
-                    hour) |>
-    dplyr::filter(member_casual == "member") |>
-    dplyr::summarize("members" = n()) |>
-    dplyr::arrange(month,
-                   weekday,
-                   hour)
+    dplyr::group_by("RiderStatus" = member_casual) |>
+    dplyr::filter(trip_time <= 1) |>
+    dplyr::summarize("trip times <= 1 min." = dplyr::count(member_casual),
+                     .groups = "keep") |>
+    dplyr::arrange()
 ```
 
 ## TIME TABLE - COMPREHENSIVE
 
 ```{r}
 
-##### more comprehense, potentially saving hundreds of lines of code
+##### more comprehensive, less confusing, and potentially saving a lot of time and code
 
 dplyr::tbl(dbconn,
            "trip_data") |>
     dplyr::select(month,
-                  hour,
                   weekday,
+                  hour,
+                  minute,
                   rideable_type,
                   member_casual) |>
     dplyr::group_by(month,
                     weekday,
                     hour,
+                    minute,
                     rideable_type,
                     member_casual) |> 
-    dplyr::summarize("memberType" = dplyr::count(member_casual)) |>
+    dplyr::summarize("rider_count" = dplyr::count(member_casual),
+                     .groups = "keep") |>
     dplyr::arrange(month,
                    weekday,
-                   hour)
+                   hour,
+                   minute) |>
+    dplyr::collect() |>
+    duckdb::dbWriteTable(conn = dbconn,
+                         name = "datetime_MemberCounting")
+
+dplyr::tbl(dbconn,
+           "datetime_MemberCounting") |>
+    head()
 ```
 
-start_station_name2member\
-start_station_name2type
+## Rider Status and Trip Duration Tables
+
+```{r}
+
+dplyr::tbl(dbconn,
+           "trip_data") |>
+    dplyr::select(start_lat,
+                  start_lng,
+                  end_lat,
+                  end_lng,
+                  trip_time) |>
+    dplyr::filter(trip_time > 1,
+                  trip_time < 480) |>
+    dplyr::arrange(trip_time) |>
+    dplyr::collect() |>
+    dplyr::mutate(
+        miles = geosphere::distGeo(
+            p1 = cbind(start_lng, start_lat),
+            p2 = cbind(end_lng, end_lat)
+        ) / 1000 * 0.62137119,
+        mph = (miles / (trip_time / 60))
+    ) |>
+    dplyr::filter(miles > 0.1,
+                  mph < 16) |>
+    dplyr::select(trip_time,
+                  miles,
+                  mph) |>
+    summary()
+```
 
 ```{r}
 
