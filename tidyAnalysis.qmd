@@ -518,6 +518,9 @@ Ensuring we only are making conclusions about sensible data by first filtering o
 
 dplyr::tbl(dbconn,
            "trip_data") |>
+    # Filtering because there were trips with negative trip times.
+    # Also, possibly filtering out people who changed their minds about riding, and would therefore have very low trip_times.
+    # There could also be a chance of nonsensical, randomly generated data from the simulated dataset.
     dplyr::filter(trip_time > 1,
                   trip_time < 480) |>
     dplyr::collect() |>
@@ -528,17 +531,28 @@ dplyr::tbl(dbconn,
         ) / 1000 * 0.62137119,
         mph = (miles / (trip_time / 60))
     ) |>
+    # It's somewhat nonsensical to rent a bike for distances easily walked. 
+    # Might also be nonsensical, randomly generated data.
     dplyr::filter(miles > 0.1,
-                  mph < 16,
+                  # Seems that pro cyclists average around 20 mph, so I set that as the ceiling.
+                  # https://bikingultimate.com/average-bicycle-speed-how-fast-do-cyclists-ride-and-what-affects-their-pace/
+                  mph < 21,
+                  # To possibly account for time spent idling.
+                  # People probably aren't riding around without a track.
+                  # To account for stoplights and traffic.
                   mph > 1) |>
     duckdb::dbWriteTable(conn = dbconn,
-                         name = "fltrd_TripData")
+                         name = "fltrd_tripData")
+
+#dplyr::tbl(dbconn, "fltrd_tripData") |>
+#    arrow::to_arrow() |>
+#    arrow::write_parquet(sink = "fltrd")
 
 # to see how many observations are left
-dplyr::tbl(dbconn, "fltrd_TripData") |>
-    dplyr::select(ride_id) |>
-    dplyr::collect() |>
-    nrow()
+#dplyr::tbl(dbconn, "fltrd_tripData") |>
+#    dplyr::select(ride_id) |>
+#    dplyr::collect() |>
+#    nrow()
 ```
 
 ## TIME TABLE - COMPREHENSIVE
@@ -548,7 +562,7 @@ dplyr::tbl(dbconn, "fltrd_TripData") |>
 ##### more comprehensive, less confusing, and potentially saving a lot of time and code
 
 dplyr::tbl(dbconn,
-           "fltrd_TripData") |>
+           "fltrd_tripData") |>
     dplyr::select(month,
                   weekday,
                   hour,
@@ -578,9 +592,77 @@ dplyr::tbl(dbconn,
                          name = "TimeTable")
 
 dplyr::tbl(dbconn, 
-           "TimeTable") |>
+           "TimeTable") |> 
     head()
 ```
+
+```{r}
+
+hours_of_Riders <- dplyr::tbl(dbconn,
+                           "TimeTable") |>
+    dplyr::select(hour,
+                  rider_count) |>
+    dplyr::group_by(hour) |>
+    dplyr::summarise("meanCount" = mean(rider_count)) |>
+    dplyr::collect() |>
+    dplyr::mutate("hour" = hms::hms(hours = hour))
+
+
+
+
+ggplot2::ggplot(data = hours_of_Riders,
+                mapping = ggplot2::aes(x = hour,
+                                       y = meanCount,
+                                       fill = meanCount)) +
+    ggplot2::geom_col() +
+    ggplot2::coord_radial(start = 2*pi,
+                          inner.radius = .3) +
+    ggplot2::scale_y_continuous(name = "Avg_Riders") +
+    ggplot2::xlab("Hour of Day (24-hour)") +
+    ggplot2::scale_fill_distiller(palette = 'Spectral',
+                                  direction = 1) +
+    ggplot2::labs(
+    title = "Average Rides by Hour of Day",
+    subtitle = "(Jan-Dec, 2023)",
+    caption = "Data from cyclistic database.",
+    tag = "Figure 1.c",
+    fill = "") +
+    ggplot2::theme(panel.background = element_rect(fill = "black"),
+                   panel.grid.minor = element_line(color = "black"),
+                   panel.grid.major = element_line(color = "grey10"),
+                   plot.background = element_rect(fill = "black"),
+                   text = element_text(color = "white"),
+                   axis.text = element_text(color = "white"),
+                   legend.background = element_rect(fill = "black"),
+                   legend.ticks = element_line(color = "black",
+                                               linewidth = .5),
+                   legend.title = element_text(size = 13),
+                   axis.text.x = element_text(size = 10),
+                   axis.title = element_text(size = 12),
+                   title = element_text(size = 18,
+                                        lineheight = 4),
+                   legend.position = "right",
+                   legend.justification = "top",
+                   legend.direction = "vertical")
+```
+
+visualizations by month/hour/min
+
+-   month
+
+    -   hour
+
+        -   min
+
+    -   hour
+
+-   month
+
+avg_tripTime
+
+avg_miles
+
+avg_mph
 
 ```{r, eval = FALSE}
 
@@ -596,9 +678,6 @@ dplyr::tbl(dbconn, "")
 duckdb::dbListTables(dbconn)
 ```
 
-end_station_name2member\
-end_station_name2type
-
 ```{r, eval = FALSE}
 
 # a chunk for easily dropping either all (default) or specific tables from the ddb 
@@ -613,7 +692,7 @@ drops_tables <- function(path) {
                           path)
 }
 
-paths[2] |> purrr::walk(drops_tables)
+paths[] |> purrr::walk(drops_tables)
 
 paths <- duckdb::dbListTables(dbconn)
 
