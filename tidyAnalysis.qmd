@@ -119,11 +119,10 @@ tripTibble <- tripTibble |>
 ```{r}
 
 tripTibble |>
-    dplyr::mutate(
-        "trip_time" =
-            lubridate::time_length(lubridate::interval(started_at,
-                                                       ended_at),
-                                   unit = "minute"),
+    dplyr::mutate("trip_time" = lubridate::time_length(
+        lubridate::interval(started_at,
+                            ended_at),
+        unit = "minute"), 
         .keep = "all"
     ) |>
     arrow::write_dataset("tempFiles",
@@ -330,7 +329,7 @@ dbconn <- DBI::dbConnect(duckdb::duckdb())
 
 # For querying the arrow dataset with the benefits of an OLAP database. 
 duckdb::duckdb_register_arrow(dbconn,
-                              "Unfltrd_Table",
+                              "unfltrd_tripData",
                               tripset)
 ```
 
@@ -413,12 +412,14 @@ ggplot2::ggplot(data = fetchedRes) +
     )
 ```
 
-## Filtering the Database
+## Filtering Data, Smartly
 
 To ensure the conclusions are accurate, outliers should be filtered. Negative and very low trip times might skew trends. The underlying reason for very low trip times is somewhat of an unknown. Perhaps people often change their minds?
 
 ```{r}
 
+# imposing sensible limits on the data we wish to include moving forward
+# might as well calculate distance traveled while at it
 dplyr::tbl(dbconn,
            "unfltrd_tripData") |>
     dplyr::filter(trip_time > 1,
@@ -479,43 +480,12 @@ dplyr::tbl(dbconn,
     duckdb::dbWriteTable(conn = dbconn,
                          name = "TimeTable")
 
-dplyr::tbl(dbconn, 
-           "TimeTable") |> 
-    head()
-```
-
-```{r}
+dir.create("Summary_Data")
 
 dplyr::tbl(dbconn,
-           "TimeTable") |>
+           "fltrd_tripData") |>
     arrow::to_arrow() |>
-    arrow::write_parquet(sink = "tmpfile")
-
-timeDataset <- arrow::open_dataset("tmpfile",
-                                     format = 'parquet')
-
-time_Dataset |>
-    arrow::write_dataset(path = "tripdata",
-                         format = 'parquet',
-                         existing_data_behavior = "overwrite")
-```
-
-```{r}
-
-time_tableSet <- arrow::open_dataset("tripdata",
-                                     format = "parquet")
-
-dbconn <- DBI::dbConnect(duckdb::duckdb())
-
-# For querying the arrow dataset with the benefits of an OLAP database. 
-duckdb::duckdb_register_arrow(dbconn,
-                              "timeTable",
-                              time_tableSet)
-
-dplyr::tbl(dbconn,
-           "timeTable") |>
-    colnames() |>
-    as.matrix()
+    arrow::write_parquet(sink = "Summary_Data/TimeTable.parquet")
 ```
 
 ```{r}
@@ -527,25 +497,27 @@ hours_of_Riders <- dplyr::tbl(dbconn,
     dplyr::group_by(hour) |>
     dplyr::summarise("meanCount" = mean(rider_count)) |>
     dplyr::collect() |>
-    dplyr::mutate("hour" = hms::hms(hours = hour))
+    dplyr::mutate("hour" = hms::hms(hours = hour)) |>
+    dplyr::mutate("hour" = format(strptime(hour,
+                                           format = "%H"), "%r"))
 
 #format(strptime(bc$time, format='%H:%M:%S'), '%r')
 
 
 ggplot2::ggplot(data = hours_of_Riders,
-                mapping = ggplot2::aes(x = hour,
+                mapping = ggplot2::aes(x = reorder(hour, .data$index),
                                        y = meanCount,
                                        fill = meanCount)) +
     ggplot2::geom_col() +
     ggplot2::coord_radial(start = 15 * pi / 8,
                           inner.radius = .3) +
-    ggplot2::scale_y_continuous(name = "Avg_Riders") +
-    ggplot2::xlab("Hour of Day (24-hour)") +
+    ggplot2::xlab(NULL) +
+    ggplot2::ylab(NULL) +
     ggplot2::scale_fill_distiller(palette = 'Spectral',
                                   direction = 1) +
     ggplot2::labs(
-    title = "Average Rides by Hour of Day",
-    subtitle = "(Jan-Dec, 2023)",
+    title = "Count of Riders by T.O.D. (averages)",
+    subtitle = "(Jan-Dec 2023)",
     caption = "Data from cyclistic database.",
     tag = "Figure 1.c",
     fill = "") +
@@ -554,7 +526,7 @@ ggplot2::ggplot(data = hours_of_Riders,
                    panel.grid.major = ggplot2::element_line(color = "grey10"),
                    plot.background = ggplot2::element_rect(fill = "black"),
                    text = ggplot2::element_text(color = "white"),
-                   axis.text = ggplot2::element_text(color = "white"),
+                   axis.text.y = ggplot2::element_text(color = "green"),
                    legend.background = ggplot2::element_rect(fill = "black"),
                    legend.ticks = ggplot2::element_line(color = "black",
                                                linewidth = .5),
@@ -566,20 +538,6 @@ ggplot2::ggplot(data = hours_of_Riders,
                    legend.position = "right",
                    legend.justification = "top",
                    legend.direction = "vertical")
-```
-
-```{r, eval = FALSE}
-
-dplyr::tbl(dbconn,
-           "") |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "")) |>
-    dplyr::collect() |>
-    duckdb::dbWriteTable(conn = dbconn,
-                         name = "")
-
-dplyr::tbl(dbconn, "")
-duckdb::dbListTables(dbconn)
 ```
 
 ```{r, eval = FALSE}
@@ -603,60 +561,9 @@ paths <- duckdb::dbListTables(dbconn)
 paths[]
 ```
 
-```{r, eval = FALSE}
-
-dplyr::tbl(dbconn,
-           "") |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "")) |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "")) |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    "")) |>
-    dplyr::left_join(y = dplyr::tbl(dbconn,
-                                    ""))
-```
-
 ## Statistics
 
 We don't need to apply statistical inference techniques such as random sampling since we already have the complete population data.
-
-Exploratory data analysis:
-
--   Counts of grouped data
-
-    -   Dodged bar chart (member vs casual?)
-    -   One graph for each variable-group, faceted
-
--   Median
-
-    -   Comparing medians between groups (trip_time, hour, weekday?)
-
-        -   Histogram
-
-            -   data densities
-
-                -   area plots
-
-    -   Facet graphs
-
-    -   Scatter-plot with line of fit
-
-        -   determine if trends are linear or nonlinear
-
--   Modality
-
-    -   Is it uni, bi, or multi?
-
-Midpoint formula variation for finding the midpoint between all pairs of coords. ??
-
-distm()
-
-map_data()
-
-pi + coord_quickmap()
-
-pi + coord_map()
 
 ```{mermaid}
 erDiagram
