@@ -14,9 +14,9 @@ toc: true
 
 -   [Use Quarto Pub for project deployment](https://quarto.org/docs/publishing/quarto-pub.html) ?
 -   [GitHub.io](github.io)
--   JS - Observable
-    -   Arquero
-    -   Observable Plot - [Mermaid \| Diagramming and charting tool](https://mermaid.js.org/) -
+-   JS
+    -   Observable - Arquero - Observable Plot
+-   [Mermaid \| Diagramming and charting tool](https://mermaid.js.org/)
 
 #### References:
 
@@ -25,6 +25,8 @@ toc: true
 -   [R for Data Science: Chapter 22: Arrow](https://r4ds.hadley.nz/arrow "Arrow")
 
 -   <https://en.wikipedia.org/wiki/Great-circle_distance>
+
+-   <https://bikingultimate.com/average-bicycle-speed-how-fast-do-cyclists-ride-and-what-affects-their-pace/>
 
 ```{r include = FALSE}
 
@@ -168,13 +170,6 @@ tripset <- arrow::open_dataset(sources = fileList[1],
     ) |>
    dplyr::ungroup()
 
-
-tripset |>
-    arrow::to_duckdb() |>
-    dplyr::collect() |>
-    colnames() |>
-    as.matrix()
-
 tripset |> arrow::write_dataset(path = "tripdata",
                                 format = "parquet",
                                 existing_data_behavior = "delete")
@@ -184,11 +179,6 @@ unlink("tempFiles", recursive = TRUE)
 tripset <- arrow::open_dataset(sources = "tripdata",
                               format = "parquet")
 
-tripset |>
-    arrow::to_duckdb() |>
-    dplyr::collect() |>
-    colnames() |>
-    as.matrix()
 # To verify the location of the extracted data.
 fileList <- list.files(path = "tripdata",
                               full.names = TRUE,
@@ -329,99 +319,20 @@ tripset |>
 
 Noting that it was useful for me to retain certain rows at first to determine if there were duplicates.
 
-```{r}
-
-tripset <- arrow::open_dataset(sources = "tripdata",
-                               format = "parquet")
-
-tripset |>
-    arrow::to_duckdb() |>
-    dplyr::filter(trip_time > 1,
-                  trip_time < 480) |>
-    dplyr::arrange(trip_time) |>
-    dplyr::collect() |>
-    dplyr::mutate(
-        miles = geosphere::distGeo(
-            p1 = cbind(start_lng, start_lat),
-            p2 = cbind(end_lng, end_lat)
-        ) / 1000 * 0.62137119,
-        mph = (miles / (trip_time / 60))
-    ) |>
-    dplyr::filter(miles > 0.1,
-                  mph < 16) |>
-    dplyr::select(trip_time,
-                  miles,
-                  mph) |>
-    summary()
-```
-
 # TESTING SECTION
 
 ```{r}
 
-tripset <- arrow::open_dataset(sources = "tripdata",
-                               format = "parquet")
+tripset <- arrow::open_dataset("tripdata",
+                                     format = "parquet")
 
 dbconn <- DBI::dbConnect(duckdb::duckdb())
 
 # For querying the arrow dataset with the benefits of an OLAP database. 
 duckdb::duckdb_register_arrow(dbconn,
-                              "trip_data",
+                              "Unfltrd_Table",
                               tripset)
-
-
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    colnames() |>
-    as.matrix()
 ```
-
-```{r}
-
-decimalTibble <- tripset |>
-    dplyr::select(end_station_id) |>
-    arrow::to_duckdb() |>
-        dplyr::group_by(end_station_id) |>
-    dplyr::filter(stringr::str_detect(end_station_id, "\\.[:digit:]$")) |>
-    dplyr::count() |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-
-check1079 <- tripset |>
-    dplyr::select(end_station_id) |>
-    arrow::to_duckdb() |>
-    dplyr::group_by(end_station_id) |>
-    dplyr::filter(stringr::str_detect(end_station_id,
-                                      "[1][0][7][9]")) |>
-    dplyr::count() |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-
-doubleDecimalTibble <- tripset |>
-    dplyr::select(end_station_id) |>
-    arrow::to_duckdb() |>
-    dplyr::filter(stringr::str_detect(end_station_id,
-                                      "\\.[1-9]$")) |>
-    dplyr::arrange(end_station_id) |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-
-removes_oneDecimalNum <- tripset |>
-    dplyr::select(end_station_id) |>
-    arrow::to_duckdb() |>
-    dplyr::filter(stringr::str_detect(end_station_id,
-                                      "\\.[:digit:]$")) |>
-    dplyr::mutate(
-        end_station_id = stringr::str_replace(
-            string = end_station_id,
-            pattern = "\\.[:digit:]$",
-            replacement = "")
-        ) |>
-    arrow::to_arrow() |>
-    dplyr::collect()
-```
-
-It doesn't really seem like the station IDs containing decimals (e.g., ####.# or ####.#.#) were typos. There were no station ids with decimal numbers other than 0 or 1 after the decimal place. There were many different station IDs with one 0 after the decimal. There was only 1 station ID with a 1 following the decimal and it was in the form of "###.1.1".
 
 ```{sql, connection = dbconn, output.var = "riders_monthly"}
 
@@ -502,25 +413,14 @@ ggplot2::ggplot(data = fetchedRes) +
     )
 ```
 
-```{r}
+## Filtering the Database
 
-dplyr::tbl(dbconn,
-           "trip_data") |>
-    colnames() |>
-    as.matrix()
-```
-
-## Smart Filtering the Database
-
-Ensuring we only are making conclusions about sensible data by first filtering out the outliers.
+To ensure the conclusions are accurate, outliers should be filtered. Negative and very low trip times might skew trends. The underlying reason for very low trip times is somewhat of an unknown. Perhaps people often change their minds?
 
 ```{r}
 
 dplyr::tbl(dbconn,
-           "trip_data") |>
-    # Filtering because there were trips with negative trip times.
-    # Also, possibly filtering out people who changed their minds about riding, and would therefore have very low trip_times.
-    # There could also be a chance of nonsensical, randomly generated data from the simulated dataset.
+           "unfltrd_tripData") |>
     dplyr::filter(trip_time > 1,
                   trip_time < 480) |>
     dplyr::collect() |>
@@ -532,27 +432,15 @@ dplyr::tbl(dbconn,
         mph = (miles / (trip_time / 60))
     ) |>
     # It's somewhat nonsensical to rent a bike for distances easily walked. 
-    # Might also be nonsensical, randomly generated data.
+    # Also, there could be randomly generated data.
     dplyr::filter(miles > 0.1,
-                  # Seems that pro cyclists average around 20 mph, so I set that as the ceiling.
-                  # https://bikingultimate.com/average-bicycle-speed-how-fast-do-cyclists-ride-and-what-affects-their-pace/
+                  # Seems that pro cyclists average around 20 mph, 
+                  # so I set that as the ceiling.
                   mph < 21,
-                  # To possibly account for time spent idling.
-                  # People probably aren't riding around without a track.
-                  # To account for stoplights and traffic.
+                  # To account for time spent idling, stoplights and traffic.
                   mph > 1) |>
     duckdb::dbWriteTable(conn = dbconn,
                          name = "fltrd_tripData")
-
-#dplyr::tbl(dbconn, "fltrd_tripData") |>
-#    arrow::to_arrow() |>
-#    arrow::write_parquet(sink = "fltrd")
-
-# to see how many observations are left
-#dplyr::tbl(dbconn, "fltrd_tripData") |>
-#    dplyr::select(ride_id) |>
-#    dplyr::collect() |>
-#    nrow()
 ```
 
 ## TIME TABLE - COMPREHENSIVE
@@ -598,6 +486,40 @@ dplyr::tbl(dbconn,
 
 ```{r}
 
+dplyr::tbl(dbconn,
+           "TimeTable") |>
+    arrow::to_arrow() |>
+    arrow::write_parquet(sink = "tmpfile")
+
+timeDataset <- arrow::open_dataset("tmpfile",
+                                     format = 'parquet')
+
+time_Dataset |>
+    arrow::write_dataset(path = "tripdata",
+                         format = 'parquet',
+                         existing_data_behavior = "overwrite")
+```
+
+```{r}
+
+time_tableSet <- arrow::open_dataset("tripdata",
+                                     format = "parquet")
+
+dbconn <- DBI::dbConnect(duckdb::duckdb())
+
+# For querying the arrow dataset with the benefits of an OLAP database. 
+duckdb::duckdb_register_arrow(dbconn,
+                              "timeTable",
+                              time_tableSet)
+
+dplyr::tbl(dbconn,
+           "timeTable") |>
+    colnames() |>
+    as.matrix()
+```
+
+```{r}
+
 hours_of_Riders <- dplyr::tbl(dbconn,
                            "TimeTable") |>
     dplyr::select(hour,
@@ -607,7 +529,7 @@ hours_of_Riders <- dplyr::tbl(dbconn,
     dplyr::collect() |>
     dplyr::mutate("hour" = hms::hms(hours = hour))
 
-
+#format(strptime(bc$time, format='%H:%M:%S'), '%r')
 
 
 ggplot2::ggplot(data = hours_of_Riders,
@@ -615,7 +537,7 @@ ggplot2::ggplot(data = hours_of_Riders,
                                        y = meanCount,
                                        fill = meanCount)) +
     ggplot2::geom_col() +
-    ggplot2::coord_radial(start = 2*pi,
+    ggplot2::coord_radial(start = 15 * pi / 8,
                           inner.radius = .3) +
     ggplot2::scale_y_continuous(name = "Avg_Riders") +
     ggplot2::xlab("Hour of Day (24-hour)") +
@@ -627,42 +549,24 @@ ggplot2::ggplot(data = hours_of_Riders,
     caption = "Data from cyclistic database.",
     tag = "Figure 1.c",
     fill = "") +
-    ggplot2::theme(panel.background = element_rect(fill = "black"),
-                   panel.grid.minor = element_line(color = "black"),
-                   panel.grid.major = element_line(color = "grey10"),
-                   plot.background = element_rect(fill = "black"),
-                   text = element_text(color = "white"),
-                   axis.text = element_text(color = "white"),
-                   legend.background = element_rect(fill = "black"),
-                   legend.ticks = element_line(color = "black",
+    ggplot2::theme(panel.background = ggplot2::element_rect(fill = "black"),
+                   panel.grid.minor = ggplot2::element_line(color = "black"),
+                   panel.grid.major = ggplot2::element_line(color = "grey10"),
+                   plot.background = ggplot2::element_rect(fill = "black"),
+                   text = ggplot2::element_text(color = "white"),
+                   axis.text = ggplot2::element_text(color = "white"),
+                   legend.background = ggplot2::element_rect(fill = "black"),
+                   legend.ticks = ggplot2::element_line(color = "black",
                                                linewidth = .5),
-                   legend.title = element_text(size = 13),
-                   axis.text.x = element_text(size = 10),
-                   axis.title = element_text(size = 12),
-                   title = element_text(size = 18,
+                   legend.title = ggplot2::element_text(size = 13),
+                   axis.text.x = ggplot2::element_text(size = 10),
+                   axis.title = ggplot2::element_text(size = 12),
+                   title = ggplot2::element_text(size = 18,
                                         lineheight = 4),
                    legend.position = "right",
                    legend.justification = "top",
                    legend.direction = "vertical")
 ```
-
-visualizations by month/hour/min
-
--   month
-
-    -   hour
-
-        -   min
-
-    -   hour
-
--   month
-
-avg_tripTime
-
-avg_miles
-
-avg_mph
 
 ```{r, eval = FALSE}
 
